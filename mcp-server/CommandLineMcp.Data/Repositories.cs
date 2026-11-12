@@ -2,10 +2,25 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CommandLineMcp.Data;
 
+/// <summary>Предоставляет операции получения и сохранения заданий клиентов.</summary>
 public interface IJobRepository
 {
+    /// <summary>Переводит просроченные выполняющиеся задания в состояние с неизвестным исходом.</summary>
+    /// <param name="clientId">Идентификатор клиента для ограничения поиска; <see langword="null"/> означает всех клиентов.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Количество заданий, переведённых в состояние <see cref="JobStatus.Unknown"/>.</returns>
     Task<int> ExpireStaleRunningAsync(Guid? clientId, CancellationToken cancellationToken = default);
+    /// <summary>Атомарно назначает клиенту самое раннее ожидающее задание, если у него нет выполняющегося задания.</summary>
+    /// <param name="clientId">Идентификатор клиента, которому назначается задание.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Назначенное задание либо <see langword="null"/>, если ожидающих заданий нет или у клиента уже выполняется задание.</returns>
     Task<Job?> ClaimNextAsync(Guid clientId, CancellationToken cancellationToken = default);
+    /// <summary>Сохраняет результат задания, выполнявшегося или отмеченного как имеющего неизвестный исход.</summary>
+    /// <param name="clientId">Идентификатор клиента, которому принадлежит задание.</param>
+    /// <param name="jobId">Идентификатор задания.</param>
+    /// <param name="result">Полученные стандартный вывод, поток ошибок, код завершения и признак тайм-аута.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns><see cref="JobResultSubmissionOutcome.Accepted"/> при сохранении; <see cref="JobResultSubmissionOutcome.IdenticalRetry"/> при повторе того же результата; <see cref="JobResultSubmissionOutcome.Conflict"/> при несовпадении состояния или результата; <see cref="JobResultSubmissionOutcome.NotFound"/> если задание не принадлежит клиенту либо отсутствует.</returns>
     Task<JobResultSubmissionOutcome> SubmitResultAsync(Guid clientId, Guid jobId,
         JobResultSubmission result, CancellationToken cancellationToken = default);
 }
@@ -14,11 +29,29 @@ public sealed record JobResultSubmission(string Stdout, string Stderr, int? Exit
 
 public enum JobResultSubmissionOutcome { Accepted, IdenticalRetry, Conflict, NotFound }
 
+/// <summary>Предоставляет поиск пользователей и пакетное изменение их настроек.</summary>
 public interface IUserRepository
 {
+    /// <summary>Находит пользователя по Telegram ID.</summary>
+    /// <param name="telegramId">Уникальный Telegram ID пользователя.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Пользователь либо <see langword="null"/>, если он не найден.</returns>
     Task<User?> FindByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default);
+    /// <summary>Разрешает OAuth указанным пользователям, создавая отсутствующие записи.</summary>
+    /// <param name="telegramIds">Telegram ID пользователей; повторяющиеся значения обрабатываются один раз.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Задача, завершающаяся после атомарного применения изменений.</returns>
     Task AllowOAuthAsync(IReadOnlyCollection<long> telegramIds, CancellationToken cancellationToken = default);
+    /// <summary>Запрещает OAuth указанным существующим пользователям.</summary>
+    /// <param name="telegramIds">Telegram ID пользователей; повторяющиеся значения обрабатываются один раз.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Итог пакетного изменения; если отсутствует хотя бы один пользователь, обновление не применяется и перечисляются все отсутствующие ID.</returns>
     Task<UserBatchUpdateResult> DenyOAuthAsync(IReadOnlyCollection<long> telegramIds, CancellationToken cancellationToken = default);
+    /// <summary>Устанавливает роль указанным существующим пользователям.</summary>
+    /// <param name="telegramIds">Telegram ID пользователей; повторяющиеся значения обрабатываются один раз.</param>
+    /// <param name="roleId">Новый идентификатор роли.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Итог пакетного изменения; если отсутствует хотя бы один пользователь, обновление не применяется и перечисляются все отсутствующие ID.</returns>
     Task<UserBatchUpdateResult> SetRoleAsync(IReadOnlyCollection<long> telegramIds, int roleId, CancellationToken cancellationToken = default);
 }
 
@@ -27,22 +60,36 @@ public sealed record UserBatchUpdateResult(IReadOnlyList<long> MissingTelegramId
     public bool Succeeded => MissingTelegramIds.Count == 0;
 }
 
+/// <summary>Предоставляет поиск клиентов по проверочным хешам ключей.</summary>
 public interface IClientRepository
 {
+    /// <summary>Находит клиентов, хеш ключа которых совпадает с переданным SHA-256 хешем без учёта регистра.</summary>
+    /// <param name="uppercaseSha256Hash">SHA-256 хеш в шестнадцатеричном виде, приведённый к верхнему регистру.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Список совпавших клиентов; пустой список, если совпадений нет.</returns>
     Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Предоставляет операции обслуживания базы данных.</summary>
 public interface IDatabaseMaintenance
 {
+    /// <summary>Применяет ожидающие миграции базы данных.</summary>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Задача, завершающаяся после применения миграций.</returns>
     Task MigrateAsync(CancellationToken cancellationToken = default);
+    /// <summary>Проверяет возможность подключения к базе данных.</summary>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns><see langword="true"/>, если подключение возможно; иначе <see langword="false"/>.</returns>
     Task<bool> CanConnectAsync(CancellationToken cancellationToken = default);
 }
 
+/// <inheritdoc />
 public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
 {
     private const int UnknownGraceSeconds = 120;
 
+    /// <inheritdoc />
     public Task<int> ExpireStaleRunningAsync(Guid? clientId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
@@ -53,6 +100,7 @@ public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
             .SetProperty(j => j.UpdatedAt, now), cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<Job?> ClaimNextAsync(Guid clientId, CancellationToken cancellationToken = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -77,6 +125,7 @@ public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
         return claimed;
     }
 
+    /// <inheritdoc />
     public async Task<JobResultSubmissionOutcome> SubmitResultAsync(Guid clientId, Guid jobId,
         JobResultSubmission result, CancellationToken cancellationToken = default)
     {
@@ -111,11 +160,14 @@ public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
         job.Status == status && job.Stdout == result.Stdout && job.Stderr == result.Stderr && job.ExitCode == result.ExitCode;
 }
 
+/// <inheritdoc />
 public sealed class UserRepository(CommandLineMcpDbContext db) : IUserRepository
 {
+    /// <inheritdoc />
     public Task<User?> FindByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default) =>
         db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.TelegramId == telegramId, cancellationToken);
 
+    /// <inheritdoc />
     public async Task AllowOAuthAsync(IReadOnlyCollection<long> telegramIds, CancellationToken cancellationToken = default)
     {
         var ids = telegramIds.Distinct().ToArray();
@@ -133,9 +185,11 @@ public sealed class UserRepository(CommandLineMcpDbContext db) : IUserRepository
         await transaction.CommitAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<UserBatchUpdateResult> DenyOAuthAsync(IReadOnlyCollection<long> telegramIds, CancellationToken cancellationToken = default) =>
         UpdateExistingAsync(telegramIds, user => user.IsOAuthAllowed = false, cancellationToken);
 
+    /// <inheritdoc />
     public Task<UserBatchUpdateResult> SetRoleAsync(IReadOnlyCollection<long> telegramIds, int roleId, CancellationToken cancellationToken = default) =>
         UpdateExistingAsync(telegramIds, user => user.RoleId = roleId, cancellationToken);
 
@@ -174,15 +228,20 @@ public static class DataRepositoryServiceCollectionExtensions
     }
 }
 
+/// <inheritdoc />
 public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientRepository
 {
+    /// <inheritdoc />
     public async Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,
         CancellationToken cancellationToken = default) => await db.Clients.AsNoTracking()
         .Where(c => c.BearerKeyHash.ToUpper() == uppercaseSha256Hash).ToListAsync(cancellationToken);
 }
 
+/// <inheritdoc />
 public sealed class DatabaseMaintenance(CommandLineMcpDbContext db) : IDatabaseMaintenance
 {
+    /// <inheritdoc />
     public Task MigrateAsync(CancellationToken cancellationToken = default) => db.Database.MigrateAsync(cancellationToken);
+    /// <inheritdoc />
     public Task<bool> CanConnectAsync(CancellationToken cancellationToken = default) => db.Database.CanConnectAsync(cancellationToken);
 }
