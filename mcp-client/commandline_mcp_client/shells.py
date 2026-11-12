@@ -21,9 +21,9 @@ class Shell(Protocol):
 
 
 class PowerShellShell:
-    """Windows PowerShell adapter. Commands run with the client's user rights."""
+    """PowerShell 7 adapter. Commands run with the client's user rights."""
 
-    def __init__(self, executable: str = "powershell.exe"):
+    def __init__(self, executable: str = "pwsh.exe"):
         self.executable = executable
 
     def execute(self, command: str, working_directory: str, timeout_seconds: float) -> ExecutionResult:

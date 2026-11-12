@@ -185,6 +185,12 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Привет мир", result.stdout)
 
+    @unittest.skipUnless(__import__("os").name == "nt", "PowerShell integration requires Windows")
+    def test_default_shell_is_powershell_7(self):
+        result = PowerShellShell().execute("$PSVersionTable.PSVersion.Major", str(Path.cwd()), 15)
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.stdout.strip(), "7")
+
     @unittest.skipUnless(__import__("os").name == "nt", "process-tree integration requires Windows")
     def test_timeout_kills_powershell_process_tree_and_keeps_partial_output(self):
         import os
@@ -192,7 +198,7 @@ class ClientTests(unittest.TestCase):
 
         child_pid_file = Path(self.temp.name) / "child.pid"
         command = (
-            "$child = Start-Process powershell.exe -PassThru -WindowStyle Hidden "
+            "$child = Start-Process pwsh.exe -PassThru -WindowStyle Hidden "
             "-ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 30'); "
             f"Set-Content -LiteralPath '{child_pid_file}' -Value $child.Id; "
             "Write-Output 'before timeout'; Start-Sleep -Seconds 30"

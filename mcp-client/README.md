@@ -52,7 +52,7 @@ an error and retains the result in a local `conflict` state for review without
 retrying it or treating it as acknowledged. Only one process can use the same
 state file at a time.
 
-PowerShell is launched non-interactively with Unicode command encoding. Commands
+PowerShell 7 (pwsh.exe) is required and launched non-interactively with Unicode command encoding. Commands
 run with the client's full user permissions and are not filtered. On timeout,
 the client terminates the process tree on Windows and returns the output
 collected so far with `timedOut = true` and a null exit code. `shells.Shell` is
