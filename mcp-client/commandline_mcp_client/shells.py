@@ -65,9 +65,12 @@ class PosixShell:
     def __init__(self, executable: str):
         self.executable = executable
 
+    def command_arguments(self, command: str) -> list[str]:
+        return ["-c", command]
+
     def execute(self, command: str, working_directory: str, timeout_seconds: float) -> ExecutionResult:
         proc = subprocess.Popen(
-            [self.executable, "-c", command],
+            [self.executable, *self.command_arguments(command)],
             cwd=working_directory, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0,
@@ -93,6 +96,15 @@ class PosixShell:
                                    err.decode("utf-8", errors="replace"), None, True)
 
 
+class CmdShell(PosixShell):
+    """Windows cmd.exe executor with AutoRun disabled."""
+    def __init__(self):
+        super().__init__("cmd.exe")
+
+    def command_arguments(self, command: str) -> list[str]:
+        return ["/d", "/s", "/c", command]
+
+
 def create_shell(name: str) -> Shell:
     if name == "pwsh":
         return PowerShellShell("pwsh")
@@ -100,4 +112,6 @@ def create_shell(name: str) -> Shell:
         return PowerShellShell("powershell.exe")
     if name in ("bash", "sh"):
         return PosixShell(name)
+    if name == "cmd":
+        return CmdShell()
     raise ValueError(f"unsupported shell: {name}")

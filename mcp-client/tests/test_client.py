@@ -6,7 +6,7 @@ from pathlib import Path
 
 from commandline_mcp_client.cli import load_config
 from commandline_mcp_client.client import ApiError, Journal, Runner, _valid_job, safe_server_endpoint
-from commandline_mcp_client.shells import ExecutionResult, PowerShellShell
+from commandline_mcp_client.shells import ExecutionResult, PowerShellShell, create_shell
 
 
 class FakeApi:
@@ -263,6 +263,12 @@ class ClientTests(unittest.TestCase):
         result = PowerShellShell().execute("Write-Output 'Привет мир'; exit 0", str(Path.cwd()), 15)
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Привет мир", result.stdout)
+
+    @unittest.skipUnless(__import__("os").name == "nt", "cmd integration requires Windows")
+    def test_cmd_shell_executes_command(self):
+        result = create_shell("cmd").execute("echo CMD_MCP_TEST", str(Path.cwd()), 10)
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("CMD_MCP_TEST", result.stdout)
 
     @unittest.skipUnless(__import__("os").name == "nt", "PowerShell integration requires Windows")
     def test_default_shell_is_powershell_7(self):

@@ -10,6 +10,7 @@ import subprocess
 SHELL_CANDIDATES = (
     ("pwsh", "pwsh.exe" if platform.system() == "Windows" else "pwsh"),
     ("powershell", "powershell.exe"),
+    ("cmd", "cmd.exe"),
     ("bash", "bash"),
     ("sh", "sh"),
 )
@@ -25,6 +26,8 @@ def detect_capabilities(configured_shell: str = "powershell") -> dict:
     shells = []
     for shell_id, executable in SHELL_CANDIDATES:
         path = shutil.which(executable)
+        if shell_id == "cmd" and platform.system() != "Windows":
+            continue
         if path is None:
             continue
         # Windows' system32/WindowsApps bash.exe is a WSL launcher, not a
@@ -39,22 +42,29 @@ def detect_capabilities(configured_shell: str = "powershell") -> dict:
         if shell_id in ("pwsh", "powershell"):
             args = [path, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
                     "$PSVersionTable.PSVersion.ToString()"]
+        elif shell_id == "cmd":
+            args = [path, "/d", "/c", "echo CMD_MCP_READY"]
         else:
             args = [path, "--version"]
         try:
             completed = subprocess.run(args, capture_output=True, text=True,
                                        timeout=3, stdin=subprocess.DEVNULL)
-            if completed.returncode == 0:
+            if shell_id == "cmd":
+                if completed.returncode != 0 or "CMD_MCP_READY" not in completed.stdout:
+                    continue
+                version = platform.version()[:128]
+            elif completed.returncode == 0:
                 first_line = completed.stdout.strip().splitlines()
                 if first_line:
                     version = first_line[0][:128]
         except (OSError, subprocess.TimeoutExpired, UnicodeError):
-            pass
+            if shell_id == "cmd":
+                continue
         shells.append({"id": shell_id, "version": version})
 
     available = {item["id"] for item in shells}
     if configured_shell == "auto":
-        preference = ("pwsh", "powershell", "bash", "sh") if platform.system() == "Windows" else ("bash", "sh", "pwsh")
+        preference = ("pwsh", "powershell", "cmd", "bash", "sh") if platform.system() == "Windows" else ("bash", "sh", "pwsh")
         default_shell = next((candidate for candidate in preference if candidate in available), "")
     else:
         default_shell = "pwsh" if configured_shell == "powershell" else configured_shell

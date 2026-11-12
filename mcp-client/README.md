@@ -1,7 +1,7 @@
 # CommandLineMCP client
 
 At startup, the client detects the operating system, CPU architecture and
-available PowerShell 7, Windows PowerShell, Bash and sh executables. It
+available PowerShell 7, Windows PowerShell, cmd.exe, Bash and sh executables. It
 publishes this information through PUT /api/client/capabilities before polling.
 The server exposes the published details through the MCP list_clients tool.
 SHELL=auto picks pwsh on Windows, bash/sh on Linux. Existing
