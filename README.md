@@ -80,11 +80,15 @@ directory is ignored by Git.
 Terminate public TLS at the deployment reverse proxy and forward
 to the server over HTTP. Preserve the original host and scheme with `Host`,
 `X-Forwarded-Host`, and `X-Forwarded-Proto: https`. Allow streaming responses
-for MCP SSE and disable buffering/timeouts that cut off long responses. The app
-accepts forwarded host/protocol only from explicitly trusted proxy addresses.
-Set `ForwardedHeaders__KnownProxies__0` (and additional indexed entries if
-needed) to the proxy source IP as seen by the server container. Store this value
-in local ignored configuration. Do not trust all proxies. The issuer stays fixed at
+for MCP SSE and disable buffering/timeouts that cut off long responses. By
+default, the app accepts forwarded headers only from explicitly trusted proxy
+addresses. Set `ForwardedHeaders__KnownProxies__0` (and additional indexed entries
+if needed) to the proxy source IP as seen by the server container. Store these
+values in local ignored configuration. If the server and reverse proxy share a
+Docker network whose membership is the intended trust boundary, opt in with
+`ForwardedHeaders__TrustAllProxies=true`. This trusts every container able to
+reach the server on that network to supply forwarded headers; keep that network
+limited to trusted services. The setting defaults to `false`. The issuer stays fixed at
 `https://cmd.example.com/`. Keep CORS limited to the ChatGPT origins needed by the
 OAuth client and preserve the application's Content-Security-Policy; do not
 replace either with wildcard proxy rules.

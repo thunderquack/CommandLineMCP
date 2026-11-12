@@ -19,8 +19,9 @@ public static class OAuthConfiguration
             var certificate = X509CertificateLoader.LoadPkcs12(bytes, options.SigningCertificate.Password,
                 X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
             var now = DateTime.UtcNow;
-            if (!certificate.HasPrivateKey || certificate.NotAfter.ToUniversalTime() <= now ||
-                certificate.NotBefore.ToUniversalTime() > now)
+            if (!certificate.HasPrivateKey
+                || certificate.NotAfter.ToUniversalTime() <= now
+                || certificate.NotBefore.ToUniversalTime() > now)
                 throw new InvalidOperationException("OAuth signing certificate must be currently valid and include a private key.");
             return certificate;
         }
@@ -91,16 +92,29 @@ public static class OAuthConfiguration
     public static IServiceCollection AddTrustedForwardedHeaders(this IServiceCollection services, IConfiguration configuration)
     {
         var proxies = configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+        var trustAllProxies = configuration.GetValue<bool>("ForwardedHeaders:TrustAllProxies");
         services.Configure<ForwardedHeadersOptions>(options =>
         {
-            options.ForwardedHeaders = proxies.Length == 0 ? ForwardedHeaders.None :
-                ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+            options.ForwardedHeaders = trustAllProxies || proxies.Length > 0 ?
+                ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost :
+                ForwardedHeaders.None;
             options.ForwardLimit = 1;
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
-            foreach (var value in proxies)
-                if (System.Net.IPAddress.TryParse(value, out var address)) options.KnownProxies.Add(address);
-                else throw new InvalidOperationException("ForwardedHeaders:KnownProxies contains an invalid IP address.");
+            if (!trustAllProxies)
+            {
+                foreach (var value in proxies)
+                {
+                    if (System.Net.IPAddress.TryParse(value, out var address))
+                    {
+                        options.KnownProxies.Add(address);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("ForwardedHeaders:KnownProxies contains an invalid IP address.");
+                    }
+                }
+            }
         });
         return services;
     }
