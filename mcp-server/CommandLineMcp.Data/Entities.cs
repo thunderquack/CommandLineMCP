@@ -18,7 +18,7 @@ public sealed class User : IAuditedEntity
     public long TelegramId { get; set; }
     /// <summary>Возвращает или задаёт признак, разрешён ли пользователю вход через OAuth.</summary>
     public bool IsOAuthAllowed { get; set; }
-    /// <summary>Возвращает или задаёт числовой идентификатор роли пользователя; значения 0 и 1 соответствуют ролям, назначаемым административным CLI.</summary>
+    /// <summary>Возвращает или задаёт числовой идентификатор роли: 0 — обычный пользователь, 1 — администратор.</summary>
     public int RoleId { get; set; }
     /// <inheritdoc />
     public DateTime CreatedAt { get; set; }
@@ -83,7 +83,7 @@ public enum JobStatus
 {
     /// <summary>Задание создано и ожидает получения клиентом.</summary>
     Pending,
-    /// <summary>Клиент сообщил о начале выполнения задания.</summary>
+    /// <summary>Задание выдано клиенту для выполнения; подтверждённого результата ещё нет.</summary>
     Running,
     /// <summary>Выполнение завершено с кодом выхода 0.</summary>
     Succeeded,

@@ -1,5 +1,5 @@
-using System.Globalization;
 using CommandLineMcp.Data;
+using System.Globalization;
 
 public static class AdminCommandRunner
 {
@@ -39,20 +39,20 @@ public static class AdminCommandRunner
                     return await ApplyExistingAsync(await users.SetRoleAsync(ids, role, cancellationToken), ids,
                         "Role updated", stdout, stderr);
                 case "show":
-                {
-                    var user = await users.FindByTelegramIdAsync(ids[0], cancellationToken);
-                    if (user is null)
                     {
-                        await stderr.WriteLineAsync($"User with Telegram ID {ids[0]} was not found.");
-                        return 3;
+                        var user = await users.FindByTelegramIdAsync(ids[0], cancellationToken);
+                        if (user is null)
+                        {
+                            await stderr.WriteLineAsync($"User with Telegram ID {ids[0]} was not found.");
+                            return 3;
+                        }
+                        await stdout.WriteLineAsync(string.Join(" ",
+                            $"Id={user.Id:D}", $"TelegramId={user.TelegramId}",
+                            $"IsOAuthAllowed={user.IsOAuthAllowed}", $"RoleId={user.RoleId}",
+                            $"CreatedAt={user.CreatedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}",
+                            $"UpdatedAt={user.UpdatedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}"));
+                        return 0;
                     }
-                    await stdout.WriteLineAsync(string.Join(" ",
-                        $"Id={user.Id:D}", $"TelegramId={user.TelegramId}",
-                        $"IsOAuthAllowed={user.IsOAuthAllowed}", $"RoleId={user.RoleId}",
-                        $"CreatedAt={user.CreatedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}",
-                        $"UpdatedAt={user.UpdatedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)}"));
-                    return 0;
-                }
                 default:
                     return 2;
             }

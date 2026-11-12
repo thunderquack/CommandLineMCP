@@ -1,7 +1,7 @@
+using CommandLineMcp.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
-using CommandLineMcp.Data;
 
 namespace CommandLineMcp.Server;
 

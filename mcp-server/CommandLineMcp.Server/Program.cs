@@ -1,6 +1,6 @@
 using CommandLineMcp.Data;
-using Microsoft.EntityFrameworkCore;
 using CommandLineMcp.Server;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("Database")

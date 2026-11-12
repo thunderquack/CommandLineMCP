@@ -1,8 +1,7 @@
-using System.Globalization;
-using CommandLineMcp.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using System.Globalization;
 
 namespace CommandLineMcp.Data.Tests;
 

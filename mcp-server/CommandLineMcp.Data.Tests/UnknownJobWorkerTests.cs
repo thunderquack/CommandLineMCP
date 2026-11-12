@@ -1,4 +1,3 @@
-using CommandLineMcp.Data;
 using CommandLineMcp.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
