@@ -2,6 +2,10 @@
 
 ## Configure authentication secrets
 
+Telegram sign-in stores its short-lived OIDC state in server memory for up to
+10 minutes. If the server restarts while a Telegram login is pending, that login
+expires; start the sign-in again.
+
 The server requires a persistent signing certificate and Telegram OIDC
 credentials. Generate the initial file before starting Compose:
 

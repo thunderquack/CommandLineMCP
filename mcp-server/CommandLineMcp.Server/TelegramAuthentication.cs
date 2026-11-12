@@ -1,8 +1,11 @@
 using CommandLineMcp.Data;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.AspNetCore.WebUtilities;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Security.Claims;
 
 namespace CommandLineMcp.Server;
@@ -21,6 +24,7 @@ public static class TelegramAuthentication
     public static IServiceCollection AddCommandLineMcpTelegramLogin(
         this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddSingleton<TelegramStateStore>();
         var clientId = configuration["Telegram:ClientId"];
         var clientSecret = configuration["Telegram:ClientSecret"];
         if (!string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret))
@@ -106,6 +110,12 @@ public static class TelegramAuthentication
                         }
                     };
                 });
+
+            services.AddOptions<OpenIdConnectOptions>(TelegramScheme)
+                .Configure<TelegramStateStore>((options, stateStore) =>
+                {
+                    options.StateDataFormat = new TelegramStateDataFormat(stateStore);
+                });
         }
 
         return services;
@@ -120,4 +130,113 @@ public static class TelegramAuthentication
     /// Именует OIDC-схему Telegram.
     /// </summary>
     public const string TelegramScheme = "Telegram";
+}
+
+/// <summary>
+/// Хранит свойства OIDC-входа вне браузера, возвращая только короткий одноразовый ключ.
+/// </summary>
+public sealed class TelegramStateStore
+{
+    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
+    private const int MaximumEntries = 10_000;
+    private readonly object _gate = new();
+    private readonly Dictionary<string, StateEntry> _entries = new(StringComparer.Ordinal);
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// Создаёт ограниченное хранилище с внедряемыми часами для проверки истечения.
+    /// </summary>
+    /// <param name="timeProvider">Источник текущего времени.</param>
+    public TelegramStateStore(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    internal string Store(AuthenticationProperties properties)
+    {
+        lock (_gate)
+        {
+            RemoveExpiredEntries();
+            if (_entries.Count >= MaximumEntries)
+            {
+                throw new InvalidOperationException("Telegram sign-in state capacity is exhausted.");
+            }
+
+            var key = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+            _entries.Add(key, new StateEntry(properties, _timeProvider.GetUtcNow().Add(Lifetime)));
+            return key;
+        }
+    }
+
+    internal AuthenticationProperties? Consume(string key)
+    {
+        lock (_gate)
+        {
+            if (!_entries.Remove(key, out var entry) || entry.ExpiresAt <= _timeProvider.GetUtcNow())
+            {
+                return null;
+            }
+
+            return entry.Properties;
+        }
+    }
+
+    private void RemoveExpiredEntries()
+    {
+        var now = _timeProvider.GetUtcNow();
+        foreach (var key in _entries.Where(entry => entry.Value.ExpiresAt <= now).Select(entry => entry.Key).ToArray())
+        {
+            _entries.Remove(key);
+        }
+    }
+
+    private sealed record StateEntry(AuthenticationProperties Properties, DateTimeOffset ExpiresAt);
+}
+
+/// <summary>
+/// Форматирует OIDC state как короткий случайный ключ к одноразовым серверным свойствам.
+/// </summary>
+public sealed class TelegramStateDataFormat : ISecureDataFormat<AuthenticationProperties>
+{
+    private readonly TelegramStateStore _stateStore;
+
+    /// <summary>
+    /// Создаёт формат поверх сервера состояний входа.
+    /// </summary>
+    /// <param name="stateStore">Серверное хранилище свойств OIDC.</param>
+    public TelegramStateDataFormat(TelegramStateStore stateStore)
+    {
+        _stateStore = stateStore;
+    }
+
+    /// <inheritdoc />
+    public string Protect(AuthenticationProperties data) => _stateStore.Store(data);
+
+    /// <inheritdoc />
+    public string Protect(AuthenticationProperties data, string? purpose) => Protect(data);
+
+    /// <inheritdoc />
+    public AuthenticationProperties? Unprotect(string? protectedText) =>
+        IsValidKey(protectedText) ? _stateStore.Consume(protectedText!) : null;
+
+    /// <inheritdoc />
+    public AuthenticationProperties? Unprotect(string? protectedText, string? purpose) => Unprotect(protectedText);
+
+    private static bool IsValidKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length != 43)
+        {
+            return false;
+        }
+
+        foreach (var character in key)
+        {
+            if (!(character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

@@ -127,6 +127,49 @@ public sealed class TelegramOidcIntegrationTests
     }
 
     [TestMethod]
+    public async Task LoginUsesShortStateAndRestoresLongLocalReturnUrlOnce()
+    {
+        using var fixture = new AuthHostFixture();
+        await fixture.SeedUserAsync(new User { Id = Guid.NewGuid(), TelegramId = 123456789, IsOAuthAllowed = true });
+        using var http = fixture.CreateClient();
+        var returnUrl = "/connect/authorize?client_id=" + new string('c', 180) +
+            "&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&scope=commands%20offline_access" +
+            "&code_challenge=" + new string('x', 64) + "&code_challenge_method=S256&state=" + new string('s', 180);
+        var login = await http.GetAsync("/login?returnUrl=" + Uri.EscapeDataString(returnUrl));
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(login.Headers.Location!.Query);
+        var state = query["state"].ToString();
+        Assert.AreEqual(43, state.Length);
+        Assert.IsTrue(query.TryGetValue("nonce", out var nonce) && !string.IsNullOrWhiteSpace(nonce));
+        fixture.Telegram.ExpectedNonce = nonce.ToString();
+
+        var callback = await http.GetAsync("/auth/telegram/callback?code=test-code&state=" + Uri.EscapeDataString(state));
+        Assert.AreEqual(HttpStatusCode.Redirect, callback.StatusCode);
+        Assert.AreEqual(returnUrl, callback.Headers.Location?.OriginalString);
+
+        fixture.Telegram.ResetTokenRequestObservation();
+        var replay = await http.GetAsync("/auth/telegram/callback?code=test-code&state=" + Uri.EscapeDataString(state));
+        Assert.AreEqual("/login?error=telegram", replay.Headers.Location?.OriginalString);
+        Assert.IsFalse(fixture.Telegram.TokenRequestObserved);
+    }
+
+    [TestMethod]
+    public void TelegramStateRejectsTamperedAndExpiredValues()
+    {
+        var clock = new AdjustableTimeProvider(DateTimeOffset.UtcNow);
+        var store = new TelegramStateStore(clock);
+        var format = new TelegramStateDataFormat(store);
+        var properties = new Microsoft.AspNetCore.Authentication.AuthenticationProperties { RedirectUri = "/clients" };
+        var state = format.Protect(properties);
+        Assert.IsNull(format.Unprotect(state[..^1] + (state[^1] == 'A' ? "B" : "A")));
+        Assert.AreEqual("/clients", format.Unprotect(state)?.RedirectUri);
+        Assert.IsNull(format.Unprotect(state));
+
+        var expired = format.Protect(new Microsoft.AspNetCore.Authentication.AuthenticationProperties { RedirectUri = "/clients" });
+        clock.Advance(TimeSpan.FromMinutes(10));
+        Assert.IsNull(format.Unprotect(expired));
+    }
+
+    [TestMethod]
     public async Task LoginDoesNotIssueSessionForTelegramAccountNotAllowedByServer()
     {
         using var fixture = new AuthHostFixture();
@@ -957,6 +1000,8 @@ public sealed class TelegramOidcIntegrationTests
         public bool TokenRequestObserved { get; private set; }
         public List<string> Requests { get; } = [];
 
+        public void ResetTokenRequestObservation() => TokenRequestObserved = false;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var uri = request.RequestUri!;
@@ -1018,5 +1063,14 @@ public sealed class TelegramOidcIntegrationTests
             if (disposing) _key.Dispose();
             base.Dispose(disposing);
         }
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset initialTime) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = initialTime;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan amount) => _utcNow = _utcNow.Add(amount);
     }
 }
