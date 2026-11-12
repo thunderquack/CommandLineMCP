@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="MSTest" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CommandLineMcp.Data\CommandLineMcp.Data.csproj" />
+    <ProjectReference Include="..\CommandLineMcp.Server\CommandLineMcp.Server.csproj" />
   </ItemGroup>
 
 </Project>

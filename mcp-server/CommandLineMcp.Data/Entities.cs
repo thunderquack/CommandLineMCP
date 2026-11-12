@@ -32,7 +32,7 @@ public sealed class Job : IAuditedEntity
 {
     public Guid Id { get; set; }
     public Guid ClientId { get; set; }
-    public string? Command { get; set; }
+    public string Command { get; set; } = null!;
     public string? WorkingDirectory { get; set; }
     public int TimeoutSeconds { get; set; }
     public JobStatus Status { get; set; } = JobStatus.Pending;

@@ -1,5 +1,6 @@
 using CommandLineMcp.Data;
 using Microsoft.EntityFrameworkCore;
+using CommandLineMcp.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("Database")
@@ -11,6 +12,7 @@ if (!string.IsNullOrWhiteSpace(databaseDirectory))
     Directory.CreateDirectory(databaseDirectory);
 }
 builder.Services.AddDbContext<CommandLineMcpDbContext>(options => options.UseSqlite(connectionString));
+builder.Services.AddHostedService<UnknownJobWorker>();
 
 var app = builder.Build();
 
@@ -34,4 +36,8 @@ app.MapGet("/health", async (CommandLineMcpDbContext db, CancellationToken cance
     }
 });
 
+app.MapClientJobEndpoints();
+
 app.Run();
+
+public partial class Program;

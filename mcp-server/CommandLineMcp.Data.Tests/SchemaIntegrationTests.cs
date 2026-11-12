@@ -21,7 +21,7 @@ public sealed class SchemaIntegrationTests
         CollectionAssert.AreEqual(new[] { "20261112000000_Initial" }, (await context.Database.GetAppliedMigrationsAsync()).ToArray());
         await context.Database.MigrateAsync();
         var applied = (await context.Database.GetAppliedMigrationsAsync()).ToArray();
-        Assert.AreEqual(2, applied.Length);
+        Assert.AreEqual(3, applied.Length);
         await context.Database.MigrateAsync();
         CollectionAssert.AreEqual(applied, (await context.Database.GetAppliedMigrationsAsync()).ToArray());
         Assert.IsFalse(context.Database.HasPendingModelChanges(), "The model snapshot must match the current EF model.");
@@ -56,7 +56,7 @@ public sealed class SchemaIntegrationTests
         context.ChangeTracker.Clear();
 
         var persistedClient = await context.Clients.SingleAsync(x => x.Id == client.Id);
-        context.Jobs.Add(new Job { Client = persistedClient, TimeoutSeconds = 10 });
+        context.Jobs.Add(new Job { Client = persistedClient, Command = "Get-Location", TimeoutSeconds = 10 });
         await context.SaveChangesAsync();
         await Assert.ThrowsAsync<SqliteException>(() => context.Database.ExecuteSqlAsync($"DELETE FROM Clients WHERE Id = {client.Id}"));
     }
