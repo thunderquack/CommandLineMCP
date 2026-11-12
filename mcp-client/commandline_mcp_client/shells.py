@@ -41,13 +41,15 @@ class PowerShellShell:
         try:
             out, err = proc.communicate(timeout=timeout_seconds)
             return ExecutionResult(out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace"), proc.returncode)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
             if os.name == "nt":
                 # Terminate descendants too, then collect any output already emitted.
                 subprocess.run(["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             else:
                 proc.kill()
             out, err = proc.communicate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             return ExecutionResult(out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace"), None, True)
 
 

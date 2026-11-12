@@ -68,6 +68,32 @@ class ClientTests(unittest.TestCase):
         self.assertNotIn("secret-output", logs)
         self.assertNotIn("secret-error", logs)
 
+    def test_debug_logs_command_and_result(self):
+        api = FakeApi([{**JOB, "command": "Write-Output debug-test"}])
+        with self.assertLogs("commandline_mcp_client", level="DEBUG") as captured:
+            Runner(api, self.journal, FakeShell(ExecutionResult("hello", "warning", 3))).run_once()
+        logs = "\n".join(captured.output)
+        self.assertIn("Write-Output debug-test", logs)
+        self.assertIn("hello", logs)
+        self.assertIn("warning", logs)
+        self.assertIn("exitCode=3", logs)
+
+    def test_poll_propagates_background_request_error(self):
+        class ErrorApi(FakeApi):
+            def request(self, method, path, payload=None):
+                raise ApiError("poll failed")
+
+        with self.assertRaisesRegex(ApiError, "poll failed"):
+            Runner(ErrorApi(), self.journal, FakeShell()).run_once()
+
+    def test_debug_config_env_override(self):
+        path = Path(self.temp.name) / ".env"
+        path.write_text("SERVER_URL=https://example.org\nBEARER_KEY=secret\nDEBUG=true\n", encoding="utf-8")
+        with patch.dict(os.environ, {"DEBUG": "false"}):
+            self.assertFalse(load_config(path).debug)
+        with patch.dict(os.environ, {"DEBUG": "true"}):
+            self.assertTrue(load_config(path).debug)
+
     def test_connection_status_logs_only_transitions(self):
         class FlakyApi(FakeApi):
             def __init__(self):

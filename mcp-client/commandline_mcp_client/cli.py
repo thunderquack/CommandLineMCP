@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import signal
 import sys
 import time
 from contextlib import contextmanager
@@ -59,16 +60,25 @@ def load_config(path: Path) -> ClientConfig:
     state_path = Path(setting("STATE_PATH", "client-state.sqlite3")).expanduser()
     if not state_path.is_absolute():
         state_path = path.parent / state_path
-    return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "powershell").lower())
+    debug_value = setting("DEBUG", "false").lower()
+    if debug_value not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
+        raise ValueError("DEBUG must be true or false")
+    return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "powershell").lower(), debug=debug_value in ("true", "1", "yes", "on"))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="CommandLineMCP polling command runner")
     parser.add_argument("--config", type=Path, default=Path(".env"), help="environment configuration file")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    def on_ctrl_c(_signum, _frame):
+        print("\nCtrl+C received, stopping MCP client...", file=sys.stderr, flush=True)
+        raise KeyboardInterrupt
+
+    previous_handler = signal.signal(signal.SIGINT, on_ctrl_c)
     try:
         config = load_config(args.config)
+        logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO,
+                            format="%(asctime)s %(levelname)s %(message)s")
         logging.info("starting client: shell=%s server=%s", config.shell, safe_server_endpoint(config.server_url))
         with single_instance_lock(config.state_path.with_suffix(config.state_path.suffix + ".lock")):
             journal = Journal(config.state_path)
@@ -77,7 +87,10 @@ def main() -> None:
             finally:
                 journal.close()
     except KeyboardInterrupt:
+        logging.info("MCP client stopped")
         return
     except (ValueError, RuntimeError, OSError) as exc:
         logging.error("client could not start: %s", exc)
         sys.exit(2)
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)

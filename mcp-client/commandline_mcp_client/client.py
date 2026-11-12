@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -37,6 +38,7 @@ class ClientConfig:
     bearer_key: str
     state_path: Path
     shell: str = "powershell"
+    debug: bool = False
     request_timeout_seconds: float = 40
 
 
@@ -191,7 +193,7 @@ class Runner:
     def upload_completed(self) -> None:
         for row in self.journal.pending_results():
             payload = {"stdout": row["stdout"], "stderr": row["stderr"], "exitCode": row["exit_code"], "timedOut": bool(row["timed_out"])}
-            status, _ = self.api.request("POST", f"/api/client/jobs/{row['job_id']}/result", payload)
+            status, _ = self._request_interruptibly("POST", f"/api/client/jobs/{row['job_id']}/result", payload)
             if status == 409:
                 # Preserve the result for operator review. A conflict is not an
                 # acknowledgement and should not be retried in a tight loop.
@@ -205,9 +207,35 @@ class Runner:
         if not self.journal.pending_results():
             self._pending_retry_reported = False
 
+    def _request_interruptibly(
+        self, method: str, path: str, payload: dict | None = None
+    ) -> tuple[int, dict | None]:
+        # Network operations run in daemon threads; SQLite stays on the main
+        # thread. Short waits make Ctrl+C responsive during poll and upload.
+        finished = threading.Event()
+        outcome = []
+
+        def poll() -> None:
+            try:
+                outcome.append((True, self.api.request(method, path, payload)))
+            except BaseException as exc:
+                outcome.append((False, exc))
+            finally:
+                finished.set()
+
+        threading.Thread(target=poll, name="mcp-http-request", daemon=True).start()
+        while not finished.wait(0.1):
+            pass
+        success, result = outcome[0]
+        if not success:
+            raise result
+        return result
+
     def run_once(self) -> bool:
         self.upload_completed()
-        status, payload = self.api.request("POST", "/api/client/jobs/poll", {"waitSeconds": self.wait_seconds})
+        status, payload = self._request_interruptibly(
+            "POST", "/api/client/jobs/poll", {"waitSeconds": self.wait_seconds}
+        )
         if status == 204:
             self._mark_online()
             return False
@@ -221,6 +249,7 @@ class Runner:
             # Already started means outcome is unknown; never replay after a crash.
             return True
         LOG.info("job %s received", job["jobId"])
+        LOG.debug("job %s command=%r workingDirectory=%r timeoutSeconds=%s", job["jobId"], job["command"], job["workingDirectory"], job["timeoutSeconds"])
         self.journal.mark_started(job["jobId"])
         LOG.info("execution started for job %s", job["jobId"])
         try:
@@ -231,6 +260,7 @@ class Runner:
             LOG.error("job execution interrupted (%s)", type(exc).__name__)
             return True
         self.journal.mark_completed(job["jobId"], result)
+        LOG.debug("job %s result: stdout=%r stderr=%r exitCode=%s timedOut=%s", job["jobId"], result.stdout, result.stderr, result.exit_code, result.timed_out)
         if result.timed_out:
             LOG.info("execution finished for job %s: timed out", job["jobId"])
         else:

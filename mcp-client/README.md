@@ -9,7 +9,9 @@ At startup, the client logs the selected shell and a sanitized server endpoint.
 After the first successful poll it reports that it is connected and waiting for
 jobs; connection loss and recovery are logged only when the state changes. Job
 logs include the job ID, execution outcome, and result acknowledgement. Commands,
-command output, and bearer keys are never included in status logs. A completed
+command output, and bearer keys are not included in normal status logs. With
+DEBUG=true, commands and their stdout/stderr are printed to the console, but
+bearer keys are not logged. Debug output may contain secrets. A completed
 result that could not be uploaded is reported as pending retry.
 
 ## Setup
@@ -37,7 +39,11 @@ SERVER_URL=https://cmd.example.com
 BEARER_KEY=replace-with-issued-client-bearer-key
 STATE_PATH=client-state.sqlite3
 SHELL=powershell
+DEBUG=false
 ```
+
+Press Ctrl+C to see a shutdown message. A running PowerShell process tree
+is terminated; an interrupted job remains in started state (unknown outcome).
 
 ## Execution and recovery
 
