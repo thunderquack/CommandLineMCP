@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import configparser
 import logging
 import os
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from dotenv import dotenv_values
 
 from .client import ClientConfig, HttpApi, Journal, Runner
 from .shells import create_shell
@@ -48,23 +48,23 @@ def single_instance_lock(path: Path):
 
 
 def load_config(path: Path) -> ClientConfig:
-    parser = configparser.ConfigParser()
-    if not parser.read(path, encoding="utf-8") or not parser.has_section("client"):
-        raise ValueError(f"configuration file missing or has no [client] section: {path}")
-    section = parser["client"]
-    server_url = section.get("server_url", "").strip()
-    bearer_key = section.get("bearer_key", "").strip()
+    values = dotenv_values(path, encoding="utf-8")
+    def setting(name: str, default: str = "") -> str:
+        return os.environ.get(name, values.get(name, default) or default).strip()
+
+    server_url = setting("SERVER_URL")
+    bearer_key = setting("BEARER_KEY")
     if not server_url or not bearer_key:
-        raise ValueError("[client] must define server_url and bearer_key")
-    state_path = Path(section.get("state_path", "client-state.sqlite3")).expanduser()
+        raise ValueError("SERVER_URL and BEARER_KEY must be configured")
+    state_path = Path(setting("STATE_PATH", "client-state.sqlite3")).expanduser()
     if not state_path.is_absolute():
         state_path = path.parent / state_path
-    return ClientConfig(server_url, bearer_key, state_path, section.get("shell", "powershell").strip().lower())
+    return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "powershell").lower())
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="CommandLineMCP polling command runner")
-    parser.add_argument("--config", type=Path, default=Path("client.ini"), help="INI configuration file")
+    parser.add_argument("--config", type=Path, default=Path(".env"), help="environment configuration file")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:

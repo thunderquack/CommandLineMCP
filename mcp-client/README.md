@@ -1,18 +1,20 @@
 # CommandLineMCP client
 
 The client polls the server, runs one PowerShell command at a time as the user
-who started it, and retries completed results from a local SQLite journal. It
-uses only the Python standard library.
+who started it, and retries completed results from a local SQLite journal.
+Configuration is read from a local `.env` file with environment variables taking
+precedence.
 
 ## Setup
 
-Python 3.14 or newer is required. Copy `client.ini.example` to `client.ini`,
-then set the server URL and the bearer key issued for this client:
+Python 3.14 or newer is required. Install the project dependency, copy
+`.env.example` to `.env`, then set the bearer key issued for this client:
 
 ```powershell
-Copy-Item client.ini.example client.ini
-notepad client.ini
-python main.py --config client.ini
+python -m pip install -e .
+Copy-Item .env.example .env
+notepad .env
+python main.py
 ```
 
 Keep the config file private. The bearer key is sent only to the configured
@@ -21,14 +23,13 @@ to another host. `state_path` defaults to `client-state.sqlite3` beside the
 configuration file. Back up that file while the client is stopped if its
 pending results must survive disk loss.
 
-Example configuration:
+Example configuration (`STATE_PATH` is relative to the config file directory):
 
-```ini
-[client]
-server_url = https://your-server.example
-bearer_key = issued-client-bearer-key
-state_path = client-state.sqlite3
-shell = powershell
+```dotenv
+SERVER_URL=https://cmd.example.com
+BEARER_KEY=replace-with-issued-client-bearer-key
+STATE_PATH=client-state.sqlite3
+SHELL=powershell
 ```
 
 ## Execution and recovery
@@ -53,10 +54,11 @@ the extension point for future `cmd` and Linux shell adapters.
 The HTTP API contract currently used is:
 
 - `POST /api/client/jobs/poll` with `{"waitSeconds":30}`; `204` means no job,
-  `200` returns `{ "jobId", "command", "workingDirectory", "timeoutSeconds" }`.
+  `200` returns `{ "jobId", "command", "workingDirectory", "timeoutSeconds" }`;
+  a null or omitted `workingDirectory` uses the client's current directory.
 - `POST /api/client/jobs/{jobId}/result` with stdout, stderr, nullable exitCode,
-  and timedOut; only `200` acknowledges the result, while `409` blocks it for
-  review.
+  and timedOut; `200` acknowledges the result. A `409` means a conflicting
+  result and is retained locally for review without retry.
 
 ## Tests
 

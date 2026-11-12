@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import time
 import urllib.error
@@ -147,9 +148,13 @@ def _valid_job(job: object) -> dict:
     try:
         job_id = job["jobId"]
         command = job["command"]
-        working_directory = job["workingDirectory"]
+        working_directory = job.get("workingDirectory")
         timeout = float(job["timeoutSeconds"])
-        if not all(isinstance(v, str) and v for v in (job_id, command, working_directory)):
+        if not all(isinstance(v, str) and v for v in (job_id, command)):
+            raise ValueError
+        if working_directory is None or working_directory == "":
+            working_directory = os.getcwd()
+        if not isinstance(working_directory, str):
             raise ValueError
         if timeout <= 0:
             raise ValueError

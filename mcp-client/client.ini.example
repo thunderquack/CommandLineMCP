@@ -1,5 +1,0 @@
-[client]
-server_url = https://commandline-mcp.example
-bearer_key = replace-with-client-key
-state_path = client-state.sqlite3
-shell = powershell

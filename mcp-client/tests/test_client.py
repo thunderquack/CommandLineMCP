@@ -1,8 +1,11 @@
 import tempfile
 import unittest
+import os
+from unittest.mock import patch
 from pathlib import Path
 
-from commandline_mcp_client.client import Journal, Runner
+from commandline_mcp_client.cli import load_config
+from commandline_mcp_client.client import Journal, Runner, _valid_job
 from commandline_mcp_client.shells import ExecutionResult, PowerShellShell
 
 
@@ -64,6 +67,32 @@ class ClientTests(unittest.TestCase):
         Runner(FakeApi([JOB]), self.journal, shell).run_once()
         self.assertEqual(shell.calls, [])
         self.assertEqual(self.journal.state("job-1"), "started")
+
+    def test_missing_working_directory_defaults_to_current_directory_and_recovers(self):
+        job = {**JOB, "workingDirectory": None}
+        normalized = _valid_job(job)
+        self.assertEqual(normalized["workingDirectory"], str(Path.cwd()))
+        self.journal.add_received(normalized)
+        self.journal.mark_started("job-1")
+        shell = FakeShell()
+        Runner(FakeApi([job]), self.journal, shell).run_once()
+        self.assertEqual(shell.calls, [])
+        self.assertEqual(self.journal.state("job-1"), "started")
+
+    def test_env_file_and_environment_precedence_and_relative_state_path(self):
+        config_dir = Path(self.temp.name) / "config"
+        config_dir.mkdir()
+        config_path = config_dir / ".env"
+        config_path.write_text(
+            "SERVER_URL=https://cmd.example.com\nBEARER_KEY=file-key\n"
+            "STATE_PATH=state/client.sqlite3\nSHELL=powershell\n",
+            encoding="utf-8",
+        )
+        with patch.dict(os.environ, {"BEARER_KEY": "env-key", "SHELL": "powershell"}):
+            config = load_config(config_path)
+        self.assertEqual(config.server_url, "https://cmd.example.com")
+        self.assertEqual(config.bearer_key, "env-key")
+        self.assertEqual(config.state_path, config_dir / "state" / "client.sqlite3")
 
     def test_timeout_result_is_durable_and_reports_timeout(self):
         api = FakeApi([JOB])

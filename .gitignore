@@ -9,3 +9,4 @@
 /secrets/*.json
 !/secrets/server.secrets.example.json
 /compose.override.yaml
+/mcp-client/.env

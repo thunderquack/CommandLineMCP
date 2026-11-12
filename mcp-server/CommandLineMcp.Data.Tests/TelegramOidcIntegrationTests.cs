@@ -439,7 +439,7 @@ public sealed class TelegramOidcIntegrationTests
         {
             ["clientId"] = clientId.ToString(),
             ["command"] = "Write-Output 'Python PowerShell integration'; exit 0",
-            ["workingDirectory"] = Directory.GetCurrentDirectory(),
+            ["workingDirectory"] = null,
             ["timeoutSeconds"] = 30
         });
         Assert.IsTrue(submitted.IsError != true);
