@@ -78,15 +78,49 @@ public sealed class Client : IAuditedEntity
     /// </summary>
     public string BearerKeyHash { get; set; } = null!;
 
-    /// <summary>Indicates whether the client key is active.</summary>
-    public bool IsEnabled { get; set; } = true;
+    /// <summary>
+    /// Возвращает или задаёт дату и время удаления клиента в UTC. Непустое значение означает, что клиент удалён.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
 
+    /// <summary>
+    /// Возвращает признак активности клиента. Клиент активен, если DeletedAt не задан.
+    /// </summary>
+    public bool IsEnabled => DeletedAt is null;
+
+    /// <summary>
+    /// Возвращает или задаёт операционную систему, указанную клиентом, например Windows или Linux.
+    /// </summary>
     public string? OperatingSystem { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт версию операционной системы клиента.
+    /// </summary>
     public string? OsVersion { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт архитектуру процессора, указанную клиентом.
+    /// </summary>
     public string? Architecture { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт идентификатор командной оболочки клиента по умолчанию.
+    /// </summary>
     public string? DefaultShell { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт JSON-массив обнаруженных командных оболочек и их версий.
+    /// </summary>
     public string? ShellsJson { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт дату и время последней успешной публикации возможностей клиента в UTC.
+    /// </summary>
     public DateTime? CapabilitiesUpdatedAt { get; set; }
+
+    /// <summary>
+    /// Возвращает или задаёт дату и время получения последнего сигнала активности клиента в UTC.
+    /// </summary>
     public DateTime? LastSeenAt { get; set; }
 
     /// <inheritdoc />
@@ -126,10 +160,14 @@ public sealed class Job : IAuditedEntity
     /// </summary>
     public string Command { get; set; } = null!;
 
-    /// <summary>Command or a client lifecycle operation.</summary>
+    /// <summary>
+    /// Возвращает или задаёт тип задания: выполнение команды или управление жизненным циклом клиента.
+    /// </summary>
     public JobKind Kind { get; set; } = JobKind.Command;
 
-    /// <summary>Selected shell id; null means the client's default shell.</summary>
+    /// <summary>
+    /// Возвращает или задаёт идентификатор выбранной оболочки; null означает оболочку клиента по умолчанию.
+    /// </summary>
     public string? Shell { get; set; }
 
     /// <summary>

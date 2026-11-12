@@ -39,7 +39,7 @@ public sealed class ClientAdminCommandTests
     }
 
     [TestMethod]
-    public async Task StdinRotationUpdatesOwnedClientAndReactivatesIt()
+    public async Task StdinRotationUpdatesOwnedClient()
     {
         using var database = new TemporaryDatabase();
         await using var db = database.CreateContext();
@@ -48,7 +48,7 @@ public sealed class ClientAdminCommandTests
         var other = new User { TelegramId = 7003 };
         db.Users.AddRange(user, other);
         await db.SaveChangesAsync();
-        var client = new Client { UserId = user.Id, Name = "worker", BearerKeyHash = new string('A', 64), IsEnabled = false };
+        var client = new Client { UserId = user.Id, Name = "worker", BearerKeyHash = new string('A', 64) };
         db.Clients.Add(client);
         await db.SaveChangesAsync();
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
@@ -75,6 +75,98 @@ public sealed class ClientAdminCommandTests
         Assert.AreEqual(unchangedTimestamp, repeated!.UpdatedAt);
         Assert.AreEqual(3, await AdminCommandRunner.RunAsync(["clients", "set-key", "7003", client.Id.ToString("D")],
             new UserRepository(db), new ClientRepository(db), new DatabaseMaintenance(db), TextWriter.Null, stderr));
+    }
+
+    [TestMethod]
+    public async Task SoftDeletePreservesJobsAndPreventsKeyReactivation()
+    {
+        using var database = new TemporaryDatabase();
+        await using var db = database.CreateContext();
+        await db.Database.MigrateAsync();
+        var owner = new User { TelegramId = 7901 };
+        var stranger = new User { TelegramId = 7902 };
+        db.Users.AddRange(owner, stranger);
+        await db.SaveChangesAsync();
+        var client = new Client { UserId = owner.Id, Name = "retired",
+            BearerKeyHash = new string('B', 64) };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        var job = new Job { ClientId = client.Id, Command = "echo archived",
+            TimeoutSeconds = 5, Status = JobStatus.Pending };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync();
+        var originalUpdated = client.UpdatedAt;
+        var repository = new ClientRepository(db);
+
+        Assert.IsFalse(await repository.DeleteAsync(stranger.Id, client.Id));
+        Assert.IsTrue(await repository.DeleteAsync(owner.Id, client.Id));
+        Assert.IsFalse(await repository.DeleteAsync(owner.Id, client.Id));
+
+        db.ChangeTracker.Clear();
+        var stored = await db.Clients.SingleAsync(c => c.Id == client.Id);
+        Assert.IsNotNull(stored.DeletedAt);
+        Assert.IsFalse(stored.IsEnabled);
+        Assert.AreEqual(originalUpdated, stored.UpdatedAt);
+        Assert.AreEqual(1, await db.Jobs.CountAsync(j => j.ClientId == client.Id));
+        Assert.AreEqual(0, (await repository.FindByOwnerAsync(owner.Id)).Count);
+        Assert.AreEqual(0, (await repository.FindByBearerKeyHashCandidatesAsync(stored.BearerKeyHash)).Count);
+        Assert.IsNull(await repository.ReplaceBearerKeyHashAsync(owner.Id, client.Id, new string('C', 64)));
+        Assert.IsNull(await repository.RenameAsync(owner.Id, client.Id, "new-name"));
+        Assert.IsFalse(await repository.RevokeAsync(owner.Id, client.Id));
+        Assert.IsFalse(await repository.TouchHeartbeatAsync(client.Id));
+        Assert.IsFalse(await repository.UpdateCapabilitiesAsync(client.Id, "Windows", "10", "AMD64",
+            "pwsh", "[]"));
+    }
+
+    [TestMethod]
+    public async Task AdminDeleteSoftDeletesOwnedClientWithoutRemovingJobs()
+    {
+        using var database = new TemporaryDatabase();
+        await using var db = database.CreateContext();
+        await db.Database.MigrateAsync();
+        var owner = new User { TelegramId = 7801 };
+        var stranger = new User { TelegramId = 7802 };
+        db.Users.AddRange(owner, stranger);
+        await db.SaveChangesAsync();
+        var client = new Client { UserId = owner.Id, Name = "retired",
+            BearerKeyHash = new string('F', 64) };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        db.Jobs.Add(new Job { ClientId = client.Id, Command = "echo old",
+            TimeoutSeconds = 30 });
+        await db.SaveChangesAsync();
+
+        var repository = new ClientRepository(db);
+        var stdout = new StringWriter(CultureInfo.InvariantCulture);
+        var stderr = new StringWriter(CultureInfo.InvariantCulture);
+        var id = client.Id.ToString("D");
+
+        var missing = await AdminCommandRunner.RunAsync(["clients", "delete", "7802", id],
+            new UserRepository(db), repository, new DatabaseMaintenance(db), stdout, stderr);
+        Assert.AreEqual(3, missing);
+        Assert.IsNull((await db.Clients.AsNoTracking().SingleAsync(x => x.Id == client.Id)).DeletedAt);
+
+        stdout.GetStringBuilder().Clear();
+        var success = await AdminCommandRunner.RunAsync(["clients", "delete", "7801", id],
+            new UserRepository(db), repository, new DatabaseMaintenance(db), stdout, stderr);
+        Assert.AreEqual(0, success);
+        StringAssert.Contains(stdout.ToString(), $"ClientId={id} Deleted=true");
+        db.ChangeTracker.Clear();
+        var saved = await db.Clients.SingleAsync(c => c.Id == client.Id);
+        Assert.IsNotNull(saved.DeletedAt);
+        Assert.IsFalse(saved.IsEnabled);
+        Assert.AreEqual(1, await db.Jobs.CountAsync(j => j.ClientId == client.Id));
+
+        var duplicate = await AdminCommandRunner.RunAsync(["clients", "delete", "7801", id],
+            new UserRepository(db), repository, new DatabaseMaintenance(db), stdout, stderr);
+        Assert.AreEqual(3, duplicate);
+
+        var invalid = await AdminCommandRunner.RunAsync(["clients", "delete", "7801", "not-a-guid"],
+            new UserRepository(db), repository, new DatabaseMaintenance(db), stdout, stderr);
+        Assert.AreEqual(2, invalid);
+        var forbiddenOption = await AdminCommandRunner.RunAsync(["clients", "delete", "7801", id, "--stdin"],
+            new UserRepository(db), repository, new DatabaseMaintenance(db), stdout, stderr);
+        Assert.AreEqual(2, forbiddenOption);
     }
 
     [TestMethod]

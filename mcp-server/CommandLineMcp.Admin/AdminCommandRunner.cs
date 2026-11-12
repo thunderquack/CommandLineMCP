@@ -14,6 +14,7 @@ public static class AdminCommandRunner
           users show <TelegramId>            Show user ID, Telegram ID, OAuth, role and timestamps.
           clients create <TelegramId> <Name>  Create an enabled client and print its key once.
           clients set-key <TelegramId> <ClientId> [--stdin]  Rotate a client's key.
+          clients delete <TelegramId> <ClientId>  Soft-delete an owned client (preserve jobs).
           --help                       Show this help.
         """;
 
@@ -92,14 +93,15 @@ public static class AdminCommandRunner
     private static async Task<int> RunClientsAsync(string[] args, IUserRepository users, IClientRepository clients,
         IDatabaseMaintenance database, TextWriter stdout, TextWriter stderr, TextReader stdin, CancellationToken cancellationToken)
     {
-        if (args.Length < 2 || args[1] is not ("create" or "set-key"))
+        if (args.Length < 2 || args[1] is not ("create" or "set-key" or "delete"))
         {
             await stderr.WriteLineAsync("Invalid arguments. Use --help for usage.");
             return 2;
         }
 
         var isCreate = args[1] == "create";
-        var valid = isCreate
+        var isDelete = args[1] == "delete";
+        var valid = isCreate || isDelete
             ? args.Length == 4
             : args.Length == 4 || (args.Length == 5 && args[4] == "--stdin");
         if (!valid || !long.TryParse(args.ElementAtOrDefault(2), NumberStyles.None,
@@ -111,8 +113,8 @@ public static class AdminCommandRunner
             return 2;
         }
 
-        string key;
-        if (!isCreate && args.Length == 5)
+        string? key = null;
+        if (!isDelete && !isCreate && args.Length == 5)
         {
             var inputKey = await stdin.ReadLineAsync(cancellationToken);
             if (!IsValidBearerKey(inputKey))
@@ -122,7 +124,7 @@ public static class AdminCommandRunner
             }
             key = inputKey!;
         }
-        else
+        else if (!isDelete)
         {
             key = GenerateBearerKey();
         }
@@ -137,7 +139,20 @@ public static class AdminCommandRunner
                 return 3;
             }
 
-            var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+            if (isDelete)
+            {
+                var clientId = Guid.Parse(args[3]);
+                if (!await clients.DeleteAsync(user.Id, clientId, cancellationToken))
+                {
+                    await stderr.WriteLineAsync("Client was not found.");
+                    return 3;
+                }
+
+                await stdout.WriteLineAsync($"ClientId={clientId:D} Deleted=true");
+                return 0;
+            }
+
+            var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key!)));
             if (isCreate)
             {
                 var client = await clients.CreateAsync(user.Id, args[3], keyHash, cancellationToken);

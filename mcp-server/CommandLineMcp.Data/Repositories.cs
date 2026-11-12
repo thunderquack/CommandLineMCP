@@ -124,6 +124,12 @@ public interface IClientRepository
     Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Помечает принадлежащего пользователю клиента удалённым без удаления истории заданий.
+    /// Bearer-ключ клиента сразу перестаёт действовать.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Находит клиентов, хеш ключа которых совпадает с переданным SHA-256 хешем без учёта регистра.
     /// </summary>
     /// <param name="uppercaseSha256Hash">SHA-256 хеш в шестнадцатеричном виде, приведённый к верхнему регистру.</param>
@@ -399,15 +405,15 @@ public sealed class OAuthScopeRepository(IOpenIddictScopeManager scopes) : IOAut
 public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientRepository
 {
     public async Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        await db.Clients.AsNoTracking().Where(x => x.UserId == userId)
-            .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt,
+        await db.Clients.AsNoTracking().Where(x => x.UserId == userId && x.DeletedAt == null)
+            .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.DeletedAt == null, x.CreatedAt, x.UpdatedAt,
                 x.OperatingSystem, x.OsVersion, x.Architecture, x.DefaultShell, x.ShellsJson, x.CapabilitiesUpdatedAt, x.LastSeenAt))
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
     public async Task<OwnedClient> CreateAsync(Guid userId, string name, string uppercaseSha256Hash, CancellationToken cancellationToken = default)
     {
-        var client = new Client { UserId = userId, Name = name, BearerKeyHash = uppercaseSha256Hash, IsEnabled = true };
+        var client = new Client { UserId = userId, Name = name, BearerKeyHash = uppercaseSha256Hash };
         db.Clients.Add(client);
         await db.SaveChangesAsync(cancellationToken);
         return ToOwnedClient(client);
@@ -419,32 +425,38 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     /// <inheritdoc />
     public async Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default)
     {
-        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId && x.DeletedAt == null, cancellationToken);
         if (client is null)
         {
             return null;
         }
-        if (client.IsEnabled && string.Equals(client.BearerKeyHash, uppercaseSha256Hash, StringComparison.Ordinal))
+        if (string.Equals(client.BearerKeyHash, uppercaseSha256Hash, StringComparison.Ordinal))
         {
             return ToOwnedClient(client);
         }
         client.BearerKeyHash = uppercaseSha256Hash;
-        client.IsEnabled = true;
         await db.SaveChangesAsync(cancellationToken);
         return ToOwnedClient(client);
     }
 
     public async Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default)
     {
-        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId && x.DeletedAt == null, cancellationToken);
         if (client is null) return false;
-        if (client.IsEnabled) { client.IsEnabled = false; await db.SaveChangesAsync(cancellationToken); }
-        return true;
+        return await DeleteAsync(userId, clientId, cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default)
+    {
+        // Атомарно устанавливаем дату удаления, сохраняя задания и время аудита.
+        var changed = await db.Clients.Where(c => c.Id == clientId && c.UserId == userId && c.DeletedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.DeletedAt, DateTime.UtcNow), cancellationToken);
+        return changed == 1;
     }
 
     private async Task<OwnedClient?> UpdateOwnedAsync(Guid userId, Guid clientId, Action<Client> update, CancellationToken cancellationToken)
     {
-        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId && x.DeletedAt == null, cancellationToken);
         if (client is null) return null;
         update(client);
         await db.SaveChangesAsync(cancellationToken);
@@ -457,7 +469,7 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     public async Task<bool> TouchHeartbeatAsync(Guid clientId, CancellationToken cancellationToken = default)
     {
         // A heartbeat is operational presence, not an audit change.
-        return await db.Clients.Where(c => c.Id == clientId && c.IsEnabled)
+        return await db.Clients.Where(c => c.Id == clientId && c.DeletedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastSeenAt, DateTime.UtcNow), cancellationToken) == 1;
     }
 
@@ -465,7 +477,7 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
         string architecture, string defaultShell, string shellsJson,
         CancellationToken cancellationToken = default)
     {
-        var client = await db.Clients.SingleOrDefaultAsync(c => c.Id == clientId && c.IsEnabled, cancellationToken);
+        var client = await db.Clients.SingleOrDefaultAsync(c => c.Id == clientId && c.DeletedAt == null, cancellationToken);
         if (client is null) return false;
         client.OperatingSystem = os;
         client.OsVersion = osVersion;
@@ -480,7 +492,7 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     /// <inheritdoc />
     public async Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,
         CancellationToken cancellationToken = default) => await db.Clients.AsNoTracking()
-        .Where(c => c.IsEnabled && c.BearerKeyHash.ToUpper() == uppercaseSha256Hash).ToListAsync(cancellationToken);
+        .Where(c => c.DeletedAt == null && c.BearerKeyHash.ToUpper() == uppercaseSha256Hash).ToListAsync(cancellationToken);
 }
 
 /// <inheritdoc />

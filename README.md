@@ -205,3 +205,21 @@ requeued; a late result may still be submitted while the job is `Unknown`.
 
 This API does not expose job creation or OAuth endpoints. Job creation and MCP
 integration are separate server work.
+
+## Soft-delete a registered client
+
+Use the Admin CLI (not an MCP tool) to soft-delete a client's registration:
+
+```powershell
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll clients delete TELEGRAM_ID CLIENT_ID
+```
+
+The command checks that the specified client belongs to the Telegram user and
+atomically sets `DeletedAt` to the current UTC timestamp. `IsEnabled` is
+derived from `DeletedAt == null`. The client disappears from `list_clients`
+and its bearer key can no longer authenticate. A foreign, missing, or already
+deleted client returns exit code 3. No client or job records are physically
+deleted; existing job history remains available for auditing.
+
+This does not stop or uninstall the Python process. It may retry authentication
+until stopped locally. Standard key rotation cannot reactivate a deleted client.

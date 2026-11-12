@@ -150,6 +150,7 @@ public sealed class CommandTools
     /// </summary>
     public sealed record JobSubmissionResult(bool Success, string? Error, Guid? JobId);
 
+
     /// <summary>
     /// Представляет состояние задания и полученный результат выполнения.
     /// </summary>

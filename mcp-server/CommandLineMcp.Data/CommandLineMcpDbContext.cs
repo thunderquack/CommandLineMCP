@@ -29,7 +29,8 @@ public sealed class CommandLineMcpDbContext(DbContextOptions<CommandLineMcpDbCon
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Name).IsRequired();
             entity.Property(x => x.BearerKeyHash).IsRequired().HasMaxLength(64);
-            entity.Property(x => x.IsEnabled).IsRequired().HasDefaultValue(true);
+            entity.Ignore(x => x.IsEnabled);
+            entity.Property(x => x.DeletedAt);
             entity.Property(x => x.OperatingSystem).HasMaxLength(64);
             entity.Property(x => x.OsVersion).HasMaxLength(256);
             entity.Property(x => x.Architecture).HasMaxLength(64);

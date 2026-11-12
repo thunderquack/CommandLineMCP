@@ -326,7 +326,7 @@ public sealed class TelegramOidcIntegrationTests
             UserId = userId,
             Name = "MCP integration client",
             BearerKeyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(clientBearer))),
-            IsEnabled = true
+            DeletedAt = null
         });
         using (var validationScope = fixture.CreateScope())
         {
@@ -528,7 +528,7 @@ public sealed class TelegramOidcIntegrationTests
             UserId = userId,
             Name = "bearer-revocation-client",
             BearerKeyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))),
-            IsEnabled = true
+            DeletedAt = null
         });
 
         using var http = fixture.CreateClient();
@@ -847,7 +847,7 @@ public sealed class TelegramOidcIntegrationTests
             await using var scope = _factory.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CommandLineMcpDbContext>();
             var client = await db.Clients.SingleAsync(x => x.Id == clientId && x.UserId == userId);
-            client.IsEnabled = false;
+            client.DeletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }
 
