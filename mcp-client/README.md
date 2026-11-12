@@ -5,6 +5,13 @@ who started it, and retries completed results from a local SQLite journal.
 Configuration is read from a local `.env` file with environment variables taking
 precedence.
 
+At startup, the client logs the selected shell and a sanitized server endpoint.
+After the first successful poll it reports that it is connected and waiting for
+jobs; connection loss and recovery are logged only when the state changes. Job
+logs include the job ID, execution outcome, and result acknowledgement. Commands,
+command output, and bearer keys are never included in status logs. A completed
+result that could not be uploaded is reported as pending retry.
+
 ## Setup
 
 Python 3.14 or newer is required. Install the project dependency, copy

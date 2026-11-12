@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from commandline_mcp_client.cli import load_config
-from commandline_mcp_client.client import Journal, Runner, _valid_job
+from commandline_mcp_client.client import ApiError, Journal, Runner, _valid_job, safe_server_endpoint
 from commandline_mcp_client.shells import ExecutionResult, PowerShellShell
 
 
@@ -52,6 +52,55 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(shell.calls, [("echo hello", ".", 10.0)])
         self.assertEqual(api.uploads[0][1], {"stdout": "héllo", "stderr": "", "exitCode": 0, "timedOut": False})
         self.assertEqual(self.journal.pending_results(), [])
+
+    def test_logs_job_lifecycle_without_command_or_output(self):
+        api = FakeApi([{**JOB, "command": "secret-command"}])
+        runner = Runner(api, self.journal, FakeShell(ExecutionResult("secret-output", "secret-error", 3)))
+        with self.assertLogs("commandline_mcp_client", level="INFO") as captured:
+            runner.run_once()
+        logs = "\n".join(captured.output)
+        self.assertIn("connected to server; waiting for jobs", logs)
+        self.assertIn("job job-1 received", logs)
+        self.assertIn("execution started for job job-1", logs)
+        self.assertIn("exit code 3", logs)
+        self.assertIn("result acknowledged for job job-1", logs)
+        self.assertNotIn("secret-command", logs)
+        self.assertNotIn("secret-output", logs)
+        self.assertNotIn("secret-error", logs)
+
+    def test_connection_status_logs_only_transitions(self):
+        class FlakyApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def request(self, method, path, payload=None):
+                self.calls += 1
+                if self.calls in (3, 4, 6, 7):
+                    raise ApiError("temporary failure")
+                return super().request(method, path, payload)
+
+        api = FlakyApi()
+        runner = Runner(api, self.journal, FakeShell())
+        sleep_calls = 0
+
+        def stop_after_repeated_outage(_delay):
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls == 4:
+                raise RuntimeError("stop test loop")
+
+        with self.assertLogs("commandline_mcp_client", level="INFO") as captured:
+            with patch("commandline_mcp_client.client.time.sleep", side_effect=stop_after_repeated_outage):
+                with self.assertRaisesRegex(RuntimeError, "stop test loop"):
+                    runner.run_forever(retry_delay=0)
+        warnings = [entry for entry in captured.output if "server offline" in entry]
+        self.assertEqual(len(warnings), 2)
+        self.assertEqual(sum("connected to server" in entry for entry in captured.output), 2)
+
+    def test_safe_endpoint_strips_url_credentials_and_query(self):
+        endpoint = safe_server_endpoint("https://private:secret@cmd.example.com/api?token=hidden#fragment")
+        self.assertEqual(endpoint, "https://cmd.example.com/api")
 
     def test_job_id_is_never_executed_twice(self):
         api, shell = FakeApi([JOB, JOB]), FakeShell()

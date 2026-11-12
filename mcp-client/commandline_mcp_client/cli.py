@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from dotenv import dotenv_values
 
-from .client import ClientConfig, HttpApi, Journal, Runner
+from .client import ClientConfig, HttpApi, Journal, Runner, safe_server_endpoint
 from .shells import create_shell
 
 
@@ -69,6 +69,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         config = load_config(args.config)
+        logging.info("starting client: shell=%s server=%s", config.shell, safe_server_endpoint(config.server_url))
         with single_instance_lock(config.state_path.with_suffix(config.state_path.suffix + ".lock")):
             journal = Journal(config.state_path)
             try:

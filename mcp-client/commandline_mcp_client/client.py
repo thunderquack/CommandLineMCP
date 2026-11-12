@@ -10,11 +10,25 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .shells import ExecutionResult, Shell, create_shell
 
 LOG = logging.getLogger("commandline_mcp_client")
+
+
+def safe_server_endpoint(server_url: str) -> str:
+    """Return an endpoint suitable for logs, excluding userinfo and query data."""
+    parsed = urlsplit(server_url)
+    host = parsed.hostname or "<invalid-host>"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    netloc = f"{host}:{port}" if port is not None else host
+    return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
 
 
 @dataclass(frozen=True)
@@ -166,6 +180,13 @@ def _valid_job(job: object) -> dict:
 class Runner:
     def __init__(self, api: HttpTransport, journal: Journal, shell: Shell, wait_seconds: int = 30):
         self.api, self.journal, self.shell, self.wait_seconds = api, journal, shell, wait_seconds
+        self._online: bool | None = None
+        self._pending_retry_reported = False
+
+    def _mark_online(self) -> None:
+        if self._online is not True:
+            LOG.info("connected to server; waiting for jobs")
+        self._online = True
 
     def upload_completed(self) -> None:
         for row in self.journal.pending_results():
@@ -180,21 +201,28 @@ class Runner:
             if status != 200:
                 raise ApiError(f"unexpected result response HTTP {status}")
             self.journal.mark_acknowledged(row["job_id"])
+            LOG.info("result acknowledged for job %s", row["job_id"])
+        if not self.journal.pending_results():
+            self._pending_retry_reported = False
 
     def run_once(self) -> bool:
         self.upload_completed()
         status, payload = self.api.request("POST", "/api/client/jobs/poll", {"waitSeconds": self.wait_seconds})
         if status == 204:
+            self._mark_online()
             return False
         if status != 200:
             raise ApiError(f"unexpected poll response HTTP {status}")
+        self._mark_online()
         job = _valid_job(payload)
         new = self.journal.add_received(job)
         state = self.journal.state(job["jobId"])
         if not new or state != "received":
             # Already started means outcome is unknown; never replay after a crash.
             return True
+        LOG.info("job %s received", job["jobId"])
         self.journal.mark_started(job["jobId"])
+        LOG.info("execution started for job %s", job["jobId"])
         try:
             result = self.shell.execute(job["command"], job["workingDirectory"], job["timeoutSeconds"])
         except Exception as exc:
@@ -203,6 +231,10 @@ class Runner:
             LOG.error("job execution interrupted (%s)", type(exc).__name__)
             return True
         self.journal.mark_completed(job["jobId"], result)
+        if result.timed_out:
+            LOG.info("execution finished for job %s: timed out", job["jobId"])
+        else:
+            LOG.info("execution finished for job %s: exit code %s", job["jobId"], result.exit_code)
         self.upload_completed()
         return True
 
@@ -211,6 +243,11 @@ class Runner:
             try:
                 self.run_once()
             except ApiError as exc:
-                LOG.warning("service request failed: %s", exc)
+                if self._online is not False:
+                    LOG.warning("server offline; request failed: %s", exc)
+                    self._online = False
+                if self.journal.pending_results() and not self._pending_retry_reported:
+                    LOG.info("completed result pending retry")
+                    self._pending_retry_reported = True
                 time.sleep(retry_delay)
 

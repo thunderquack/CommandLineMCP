@@ -10,3 +10,9 @@
 !/secrets/server.secrets.example.json
 /compose.override.yaml
 /mcp-client/.env
+/mcp-client/build/
+/mcp-client/*.egg-info/
+/mcp-client/client-state.sqlite3
+/mcp-client/client-state.sqlite3-shm
+/mcp-client/client-state.sqlite3-wal
+/mcp-client/client-state.sqlite3.lock
