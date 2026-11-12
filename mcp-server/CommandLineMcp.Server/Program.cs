@@ -17,8 +17,8 @@ public partial class Program
             builder.Configuration.AddJsonFile(secretsFile, optional: false, reloadOnChange: false);
             builder.Configuration.AddEnvironmentVariables();
         }
-        else if (string.IsNullOrWhiteSpace(builder.Configuration["OAuth:SigningCertificate:PfxBase64"]) ||
-                 string.IsNullOrWhiteSpace(builder.Configuration["OAuth:SigningCertificate:Password"]))
+        else if (string.IsNullOrWhiteSpace(builder.Configuration["OAuth:SigningCertificate:PfxBase64"]) 
+                || string.IsNullOrWhiteSpace(builder.Configuration["OAuth:SigningCertificate:Password"]))
         {
             throw new InvalidOperationException($"Required OAuth secrets file '{secretsFile}' is missing and no complete signing certificate was configured.");
         }
@@ -29,7 +29,9 @@ public partial class Program
         builder.Configuration["OAuth:DataProtectionKeysPath"] ??= "/data/keys";
         if (string.IsNullOrWhiteSpace(builder.Configuration["Telegram:ClientId"]) ||
             string.IsNullOrWhiteSpace(builder.Configuration["Telegram:ClientSecret"]))
+        {
             throw new InvalidOperationException("Telegram OIDC ClientId and ClientSecret are required.");
+        }
         var oauthOptions = builder.Configuration.GetSection(OAuthOptions.SectionName).Get<OAuthOptions>()
             ?? throw new InvalidOperationException("OAuth configuration is required.");
         var resourceMetadata = new Uri(new Uri(oauthOptions.Issuer, UriKind.Absolute), ".well-known/oauth-protected-resource/mcp").AbsoluteUri;
@@ -74,7 +76,7 @@ public partial class Program
                 }
 
                 var subject = result.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                    ?? result.Principal.FindFirst(OpenIddict.Abstractions.OpenIddictConstants.Claims.Subject)?.Value;
+                    ?? result.Principal.FindFirst(OpenIddictConstants.Claims.Subject)?.Value;
                 if (!Guid.TryParse(subject, out var userId) ||
                     !await context.RequestServices.GetRequiredService<IUserAccessValidator>()
                         .IsOAuthAllowedAsync(userId, context.RequestAborted))
@@ -86,8 +88,9 @@ public partial class Program
                 context.User = result.Principal;
             }
             await next();
-            if (context.Request.Path.StartsWithSegments("/mcp") && context.Response.StatusCode == StatusCodes.Status401Unauthorized &&
-                !context.Response.Headers.ContainsKey("WWW-Authenticate"))
+            if (context.Request.Path.StartsWithSegments("/mcp")
+                && context.Response.StatusCode == StatusCodes.Status401Unauthorized
+                && !context.Response.Headers.ContainsKey("WWW-Authenticate"))
                 context.Response.Headers.WWWAuthenticate = $"Bearer resource_metadata=\"{resourceMetadata}\"";
         });
         app.UseAuthorization();
@@ -106,11 +109,11 @@ public partial class Program
             {
                 return await database.CanConnectAsync(cancellationToken)
                     ? Results.Ok(new { status = "healthy", database = "reachable" })
-                    : Results.Json(new { status = "unhealthy", database = "unreachable" }, statusCode: 503);
+                    : Results.Json(new { status = "unhealthy", database = "unreachable" }, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
             catch
             {
-                return Results.Json(new { status = "unhealthy", database = "unreachable" }, statusCode: 503);
+                return Results.Json(new { status = "unhealthy", database = "unreachable" }, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         });
 
@@ -118,8 +121,12 @@ public partial class Program
         {
             resource = oauthOptions.Resource,
             authorization_servers = new[] { oauthOptions.Issuer },
-            scopes_supported = new[] { "commands", OpenIddict.Abstractions.OpenIddictConstants.Scopes.OfflineAccess },
-            bearer_methods_supported = new[] { "header" }
+            scopes_supported = new[]
+            {
+                "commands",
+                OpenIddictConstants.Scopes.OfflineAccess,
+            },
+            bearer_methods_supported = new[] { "header" },
         }));
 
         app.MapClientJobEndpoints();
