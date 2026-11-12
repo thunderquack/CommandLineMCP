@@ -94,10 +94,31 @@ public sealed record UserBatchUpdateResult(IReadOnlyList<long> MissingTelegramId
 public interface IClientRepository
 {
     Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Создаёт включённого клиента, принадлежащего указанному пользователю.
+    /// </summary>
+    /// <param name="userId">Идентификатор владельца клиента.</param>
+    /// <param name="name">Имя клиента.</param>
+    /// <param name="uppercaseSha256Hash">Верхнерегистровый SHA-256 хеш ключа.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Созданный клиент без секрета ключа.</returns>
     Task<OwnedClient> CreateAsync(Guid userId, string name, string uppercaseSha256Hash, CancellationToken cancellationToken = default);
+
     Task<OwnedClient?> RenameAsync(Guid userId, Guid clientId, string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Заменяет ключ принадлежащего пользователю клиента и включает его; повторная установка того же ключа активному клиенту не меняет аудит-время.
+    /// </summary>
+    /// <param name="userId">Идентификатор владельца клиента.</param>
+    /// <param name="clientId">Идентификатор клиента.</param>
+    /// <param name="uppercaseSha256Hash">Верхнерегистровый SHA-256 хеш нового ключа.</param>
+    /// <param name="cancellationToken">Токен отмены операции.</param>
+    /// <returns>Обновлённый клиент либо <see langword="null"/>, если клиент не принадлежит пользователю.</returns>
     Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default);
+
     Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Находит клиентов, хеш ключа которых совпадает с переданным SHA-256 хешем без учёта регистра.
     /// </summary>
@@ -373,6 +394,7 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
             .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt))
             .ToListAsync(cancellationToken);
 
+    /// <inheritdoc />
     public async Task<OwnedClient> CreateAsync(Guid userId, string name, string uppercaseSha256Hash, CancellationToken cancellationToken = default)
     {
         var client = new Client { UserId = userId, Name = name, BearerKeyHash = uppercaseSha256Hash, IsEnabled = true };
@@ -384,8 +406,23 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     public Task<OwnedClient?> RenameAsync(Guid userId, Guid clientId, string name, CancellationToken cancellationToken = default) =>
         UpdateOwnedAsync(userId, clientId, client => client.Name = name, cancellationToken);
 
-    public Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default) =>
-        UpdateOwnedAsync(userId, clientId, client => { client.BearerKeyHash = uppercaseSha256Hash; client.IsEnabled = true; }, cancellationToken);
+    /// <inheritdoc />
+    public async Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default)
+    {
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        if (client is null)
+        {
+            return null;
+        }
+        if (client.IsEnabled && string.Equals(client.BearerKeyHash, uppercaseSha256Hash, StringComparison.Ordinal))
+        {
+            return ToOwnedClient(client);
+        }
+        client.BearerKeyHash = uppercaseSha256Hash;
+        client.IsEnabled = true;
+        await db.SaveChangesAsync(cancellationToken);
+        return ToOwnedClient(client);
+    }
 
     public async Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default)
     {

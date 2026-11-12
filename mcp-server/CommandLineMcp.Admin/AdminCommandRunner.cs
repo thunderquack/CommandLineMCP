@@ -1,5 +1,7 @@
 using CommandLineMcp.Data;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 public static class AdminCommandRunner
 {
@@ -10,6 +12,8 @@ public static class AdminCommandRunner
           users deny-oauth <TelegramId...>   Deny OAuth for existing users.
           users set-role <TelegramId> <0|1>  Set the role for an existing user.
           users show <TelegramId>            Show user ID, Telegram ID, OAuth, role and timestamps.
+          clients create <TelegramId> <Name>  Create an enabled client and print its key once.
+          clients set-key <TelegramId> <ClientId> [--stdin]  Rotate a client's key.
           --help                       Show this help.
         """;
 
@@ -19,8 +23,28 @@ public static class AdminCommandRunner
         IDatabaseMaintenance database,
         TextWriter stdout,
         TextWriter stderr,
+        CancellationToken cancellationToken = default) =>
+        await RunAsync(args, users, null, database, stdout, stderr, cancellationToken: cancellationToken);
+
+    public static async Task<int> RunAsync(
+        string[] args,
+        IUserRepository users,
+        IClientRepository? clients,
+        IDatabaseMaintenance database,
+        TextWriter stdout,
+        TextWriter stderr,
+        TextReader? stdin = null,
         CancellationToken cancellationToken = default)
     {
+        if (args.Length > 0 && args[0] == "clients")
+        {
+            if (clients is null)
+            {
+                await stderr.WriteLineAsync("Database operation failed.");
+                return 1;
+            }
+            return await RunClientsAsync(args, users, clients, database, stdout, stderr, stdin ?? Console.In, cancellationToken);
+        }
         if (!TryParse(args, stderr, out var command, out var ids, out var role)) return 2;
 
         try
@@ -64,6 +88,92 @@ public static class AdminCommandRunner
             return 1;
         }
     }
+
+    private static async Task<int> RunClientsAsync(string[] args, IUserRepository users, IClientRepository clients,
+        IDatabaseMaintenance database, TextWriter stdout, TextWriter stderr, TextReader stdin, CancellationToken cancellationToken)
+    {
+        if (args.Length < 2 || args[1] is not ("create" or "set-key"))
+        {
+            await stderr.WriteLineAsync("Invalid arguments. Use --help for usage.");
+            return 2;
+        }
+
+        var isCreate = args[1] == "create";
+        var valid = isCreate
+            ? args.Length == 4
+            : args.Length == 4 || (args.Length == 5 && args[4] == "--stdin");
+        if (!valid || !long.TryParse(args.ElementAtOrDefault(2), NumberStyles.None,
+                CultureInfo.InvariantCulture, out var telegramId) || telegramId <= 0 ||
+            (isCreate && string.IsNullOrWhiteSpace(args.ElementAtOrDefault(3))) ||
+            (!isCreate && !Guid.TryParse(args.ElementAtOrDefault(3), out _)))
+        {
+            await stderr.WriteLineAsync("Invalid arguments. Use --help for usage.");
+            return 2;
+        }
+
+        string key;
+        if (!isCreate && args.Length == 5)
+        {
+            var inputKey = await stdin.ReadLineAsync(cancellationToken);
+            if (!IsValidBearerKey(inputKey))
+            {
+                await stderr.WriteLineAsync("Invalid key input.");
+                return 2;
+            }
+            key = inputKey!;
+        }
+        else
+        {
+            key = GenerateBearerKey();
+        }
+
+        try
+        {
+            await database.MigrateAsync(cancellationToken);
+            var user = await users.FindByTelegramIdAsync(telegramId, cancellationToken);
+            if (user is null)
+            {
+                await stderr.WriteLineAsync("User was not found.");
+                return 3;
+            }
+
+            var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+            if (isCreate)
+            {
+                var client = await clients.CreateAsync(user.Id, args[3], keyHash, cancellationToken);
+                await stdout.WriteLineAsync($"ClientId={client.Id:D} Name={client.Name} BearerKey={key}");
+                return 0;
+            }
+
+            var updated = await clients.ReplaceBearerKeyHashAsync(user.Id, Guid.Parse(args[3]), keyHash, cancellationToken);
+            if (updated is null)
+            {
+                await stderr.WriteLineAsync("Client was not found.");
+                return 3;
+            }
+            if (args.Length == 5)
+            {
+                await stdout.WriteLineAsync($"ClientId={updated.Id:D} KeyUpdated=true");
+            }
+            else
+            {
+                await stdout.WriteLineAsync($"ClientId={updated.Id:D} BearerKey={key}");
+            }
+            return 0;
+        }
+        catch (Exception)
+        {
+            await stderr.WriteLineAsync("Database operation failed.");
+            return 1;
+        }
+    }
+
+    private static bool IsValidBearerKey(string? key) => key is { Length: >= 32 and <= 4096 } &&
+        !key.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
+
+    private static string GenerateBearerKey() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
 
     private static async Task<int> ApplyExistingAsync(UserBatchUpdateResult result, long[] ids,
         string success, TextWriter stdout, TextWriter stderr)

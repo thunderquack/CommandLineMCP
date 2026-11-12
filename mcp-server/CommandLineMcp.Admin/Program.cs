@@ -37,8 +37,9 @@ internal static class Program
             services.AddCommandLineMcpDataRepositories();
             await using var provider = services.BuildServiceProvider();
             var users = provider.GetRequiredService<IUserRepository>();
+            var clients = provider.GetRequiredService<IClientRepository>();
             var database = provider.GetRequiredService<IDatabaseMaintenance>();
-            return await AdminCommandRunner.RunAsync(args, users, database, Console.Out, Console.Error);
+            return await AdminCommandRunner.RunAsync(args, users, clients, database, Console.Out, Console.Error);
         }
         catch (Exception)
         {

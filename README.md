@@ -117,7 +117,23 @@ docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users a
 docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users deny-oauth TELEGRAM_ID
 docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users set-role TELEGRAM_ID 1
 docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users show TELEGRAM_ID
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll clients create TELEGRAM_ID workstation
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll clients set-key TELEGRAM_ID CLIENT_ID
 ```
+
+`clients create` requires an existing Telegram user and client name. It creates
+an enabled client and prints its ID and a newly generated bearer key once; save
+the key in the client's local configuration. `clients set-key` replaces a
+client key and re-enables that client. Both commands check that the client
+belongs to the specified user. To provide a replacement key without putting it
+in command history or echoing it, pass it as one line on standard input:
+
+```powershell
+Get-Content -Raw .\new-client-key.txt | docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll clients set-key TELEGRAM_ID CLIENT_ID --stdin
+```
+
+The supplied key must contain 32 through 4096 characters and no whitespace or
+control characters. The server stores only its uppercase SHA-256 hash.
 
 For an offline maintenance run, `run --no-deps` avoids starting or depending
 on the server process. Stop the server first so SQLite has a single writer:
