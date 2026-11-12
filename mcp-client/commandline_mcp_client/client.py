@@ -97,6 +97,46 @@ class HttpApi:
             raise ApiError(f"request failed ({type(exc).__name__})") from None
 
 
+class Heartbeat:
+    """Independent heartbeat thread, including during long polls and commands."""
+
+    def __init__(self, api: HttpTransport, interval_seconds: float = 15):
+        self.api = api
+        self.interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            raise RuntimeError("heartbeat already started")
+        self._thread = threading.Thread(target=self._run, name="mcp-heartbeat", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                status, _ = self.api.request("POST", "/api/client/heartbeat")
+                if status != 200:
+                    LOG.warning("heartbeat returned HTTP %s", status)
+            except ApiError as exc:
+                # An older server may not expose the endpoint; do not flood
+                # logs, and never block command execution or shutdown.
+                if str(exc) == "server returned HTTP 404":
+                    LOG.info("server does not support heartbeat; heartbeat disabled")
+                    return
+                LOG.debug("heartbeat failed: %s", exc)
+            except Exception:
+                LOG.exception("unexpected heartbeat error")
+            if self._stop.wait(self.interval_seconds):
+                break
+
+    def stop(self) -> None:
+        self._stop.set()
+        # Do not wait on in-flight HTTP during shutdown.
+        if self._thread is not None:
+            self._thread.join(timeout=0.2)
+
+
 class Journal:
     """Durable at-most-once execution journal, keyed by server job ID."""
 

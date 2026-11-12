@@ -12,9 +12,19 @@ public static class ClientJobEndpoints
     public static IEndpointRouteBuilder MapClientJobEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPut("/api/client/capabilities", PublishCapabilitiesAsync);
+        endpoints.MapPost("/api/client/heartbeat", HeartbeatAsync);
         endpoints.MapPost("/api/client/jobs/poll", PollAsync);
         endpoints.MapPost("/api/client/jobs/{jobId:guid}/result", SubmitResultAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> HeartbeatAsync(HttpRequest request,
+        IClientRepository clients, CancellationToken ct)
+    {
+        if (!TryBearer(request, out var key)) return Results.Unauthorized();
+        var client = await FindClientAsync(clients, key, ct);
+        if (client is null) return Results.Unauthorized();
+        return await clients.TouchHeartbeatAsync(client.Id, ct) ? Results.Ok() : Results.Unauthorized();
     }
 
     private static async Task<IResult> PublishCapabilitiesAsync(HttpRequest request,

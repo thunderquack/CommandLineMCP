@@ -94,6 +94,7 @@ public sealed record UserBatchUpdateResult(IReadOnlyList<long> MissingTelegramId
 public interface IClientRepository
 {
     Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<bool> TouchHeartbeatAsync(Guid clientId, CancellationToken cancellationToken = default);
     Task<bool> UpdateCapabilitiesAsync(Guid clientId, string os, string osVersion,
         string architecture, string defaultShell, string shellsJson,
         CancellationToken cancellationToken = default);
@@ -134,7 +135,8 @@ public interface IClientRepository
 
 public sealed record OwnedClient(Guid Id, string Name, bool IsEnabled, DateTime CreatedAt, DateTime UpdatedAt,
     string? OperatingSystem = null, string? OsVersion = null, string? Architecture = null,
-    string? DefaultShell = null, string? ShellsJson = null, DateTime? CapabilitiesUpdatedAt = null);
+    string? DefaultShell = null, string? ShellsJson = null, DateTime? CapabilitiesUpdatedAt = null,
+    DateTime? LastSeenAt = null);
 public sealed record OwnedJob(Guid Id, Guid ClientId, string Command, string? WorkingDirectory, int TimeoutSeconds,
     JobStatus Status, string? Stdout, string? Stderr, int? ExitCode, DateTime CreatedAt, DateTime UpdatedAt);
 
@@ -399,7 +401,7 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     public async Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default) =>
         await db.Clients.AsNoTracking().Where(x => x.UserId == userId)
             .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt,
-                x.OperatingSystem, x.OsVersion, x.Architecture, x.DefaultShell, x.ShellsJson, x.CapabilitiesUpdatedAt))
+                x.OperatingSystem, x.OsVersion, x.Architecture, x.DefaultShell, x.ShellsJson, x.CapabilitiesUpdatedAt, x.LastSeenAt))
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
@@ -450,7 +452,14 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
     }
 
     private static OwnedClient ToOwnedClient(Client c) => new(c.Id, c.Name, c.IsEnabled, c.CreatedAt, c.UpdatedAt,
-        c.OperatingSystem, c.OsVersion, c.Architecture, c.DefaultShell, c.ShellsJson, c.CapabilitiesUpdatedAt);
+        c.OperatingSystem, c.OsVersion, c.Architecture, c.DefaultShell, c.ShellsJson, c.CapabilitiesUpdatedAt, c.LastSeenAt);
+
+    public async Task<bool> TouchHeartbeatAsync(Guid clientId, CancellationToken cancellationToken = default)
+    {
+        // A heartbeat is operational presence, not an audit change.
+        return await db.Clients.Where(c => c.Id == clientId && c.IsEnabled)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastSeenAt, DateTime.UtcNow), cancellationToken) == 1;
+    }
 
     public async Task<bool> UpdateCapabilitiesAsync(Guid clientId, string os, string osVersion,
         string architecture, string defaultShell, string shellsJson,

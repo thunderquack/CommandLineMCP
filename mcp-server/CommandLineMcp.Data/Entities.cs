@@ -87,6 +87,7 @@ public sealed class Client : IAuditedEntity
     public string? DefaultShell { get; set; }
     public string? ShellsJson { get; set; }
     public DateTime? CapabilitiesUpdatedAt { get; set; }
+    public DateTime? LastSeenAt { get; set; }
 
     /// <inheritdoc />
     public DateTime CreatedAt { get; set; }

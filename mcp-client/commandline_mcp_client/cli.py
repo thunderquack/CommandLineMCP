@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from dotenv import dotenv_values
 
-from .client import ClientConfig, HttpApi, Journal, Runner, RestartRequested, safe_server_endpoint
+from .client import ClientConfig, Heartbeat, HttpApi, Journal, Runner, RestartRequested, safe_server_endpoint
 from .capabilities import detect_capabilities
 from .shells import create_shell
 
@@ -125,10 +125,13 @@ def main() -> None:
                      capabilities["defaultShell"])
         with single_instance_lock(config.state_path.with_suffix(config.state_path.suffix + ".lock")):
             journal = Journal(config.state_path)
+            heartbeat = Heartbeat(HttpApi(config.server_url, config.bearer_key, timeout=8))
             try:
+                heartbeat.start()
                 Runner(HttpApi(config.server_url, config.bearer_key), journal,
                        create_shell(capabilities["defaultShell"]), capabilities=capabilities).run_forever()
             finally:
+                heartbeat.stop()
                 journal.close()
     except RestartRequested:
         restart = True

@@ -27,7 +27,9 @@ public sealed class CommandTools
             c.OperatingSystem, c.OsVersion, c.Architecture, c.DefaultShell,
             string.IsNullOrWhiteSpace(c.ShellsJson) ? [] :
                 System.Text.Json.JsonSerializer.Deserialize<AvailableShell[]>(c.ShellsJson) ?? [],
-            c.CapabilitiesUpdatedAt)).ToArray());
+            c.CapabilitiesUpdatedAt, c.LastSeenAt,
+            c.IsEnabled && c.LastSeenAt is { } lastSeen &&
+                lastSeen >= DateTime.UtcNow.AddSeconds(-45))).ToArray());
     }
 
     /// <summary>
@@ -139,7 +141,7 @@ public sealed class CommandTools
     public sealed record ClientSummary(Guid Id, string Name, bool IsEnabled,
         string? OperatingSystem, string? OsVersion, string? Architecture,
         string? DefaultShell, IReadOnlyList<AvailableShell> Shells,
-        DateTime? CapabilitiesUpdatedAt);
+        DateTime? CapabilitiesUpdatedAt, DateTime? LastSeenAt, bool IsOnline);
 
     public sealed record AvailableShell(string Id, string? Version);
 

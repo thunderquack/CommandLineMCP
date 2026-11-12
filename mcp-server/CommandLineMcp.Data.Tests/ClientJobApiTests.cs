@@ -75,6 +75,24 @@ public sealed class ClientJobApiTests
     }
 
     [TestMethod]
+    public async Task HeartbeatRequiresAuthenticationAndUpdatesPresence()
+    {
+        using var fixture = new ApiFixture();
+        await fixture.InitializeAsync();
+        using var factory = fixture.CreateFactory();
+        using var http = factory.CreateClient();
+        var rejected = await http.PostAsync("/api/client/heartbeat", null);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, rejected.StatusCode);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Key);
+        var accepted = await http.PostAsync("/api/client/heartbeat", null);
+        Assert.AreEqual(HttpStatusCode.OK, accepted.StatusCode);
+        await using var verify = new CommandLineMcpDbContext(fixture.Options);
+        var client = await verify.Clients.SingleAsync(x => x.Id == fixture.ClientId);
+        Assert.IsNotNull(client.LastSeenAt);
+        Assert.IsTrue(DateTime.UtcNow - client.LastSeenAt < TimeSpan.FromSeconds(30));
+    }
+
+    [TestMethod]
     public async Task RestartJobIsDeliveredAsTypedJobAndAcknowledged()
     {
         using var fixture = new ApiFixture();

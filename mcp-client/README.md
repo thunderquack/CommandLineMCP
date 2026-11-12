@@ -120,3 +120,15 @@ Omitting `shell` preserves the client-configured default. The Python runner
 selects the corresponding adapter for each job; the SQLite journal persists
 the selected shell and upgrades existing journals automatically. Restart jobs
 are handled separately and never executed in any shell.
+
+## Client heartbeat
+
+While the client runs, an independent daemon thread sends
+`POST /api/client/heartbeat` every 15 seconds, including during long
+polling and command execution. It uses the normal bearer authentication and
+does not touch the local SQLite journal. The server records `lastSeenAt`
+and returns `isOnline` in `list_clients`, with a 45-second freshness
+window. This is a presence estimate, not a guarantee that the client is
+able to execute commands. On network errors the worker retries on its next
+interval; against an older server returning 404 it disables itself.
+Stopping or restarting the Python client stops the heartbeat worker.

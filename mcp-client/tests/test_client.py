@@ -1,11 +1,12 @@
 import tempfile
 import unittest
 import os
+import threading
 from unittest.mock import patch
 from pathlib import Path
 
 from commandline_mcp_client.cli import load_config
-from commandline_mcp_client.client import ApiError, Journal, Runner, RestartRequested, _valid_job, safe_server_endpoint
+from commandline_mcp_client.client import ApiError, Heartbeat, Journal, Runner, RestartRequested, _valid_job, safe_server_endpoint
 from commandline_mcp_client.shells import ExecutionResult, PowerShellShell, create_shell
 
 
@@ -60,6 +61,42 @@ class ClientTests(unittest.TestCase):
                 self.assertEqual(trigger.call_count, 2)
             finally:
                 kernel32.SetConsoleCtrlHandler(handler, False)
+
+    def test_heartbeat_runs_independently_and_stops(self):
+        seen = threading.Event()
+        class HeartbeatApi:
+            def __init__(self):
+                self.calls = 0
+            def request(self, method, path, payload=None):
+                self.calls += 1
+                self_method, self_path = method, path
+                assert (self_method, self_path) == ("POST", "/api/client/heartbeat")
+                seen.set()
+                return 200, None
+        api = HeartbeatApi()
+        heartbeat = Heartbeat(api, interval_seconds=0.05)
+        heartbeat.start()
+        self.assertTrue(seen.wait(2))
+        heartbeat.stop()
+        calls = api.calls
+        threading.Event().wait(0.1)
+        self.assertEqual(calls, api.calls)
+
+    def test_heartbeat_disables_itself_for_older_server(self):
+        class LegacyApi:
+            def __init__(self):
+                self.calls = 0
+            def request(self, method, path, payload=None):
+                self.calls += 1
+                raise ApiError("server returned HTTP 404")
+        api = LegacyApi()
+        heartbeat = Heartbeat(api, interval_seconds=0.03)
+        heartbeat.start()
+        self.assertIsNotNone(heartbeat._thread)
+        heartbeat._thread.join(timeout=1)
+        self.assertFalse(heartbeat._thread.is_alive())
+        self.assertEqual(api.calls, 1)
+        heartbeat.stop()
 
     def test_restart_acknowledged_without_shell_execution(self):
         job = {**JOB, "kind": "restart", "command": "__mcp_restart__"}
