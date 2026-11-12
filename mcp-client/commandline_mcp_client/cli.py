@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 from .client import ClientConfig, HttpApi, Journal, Runner, safe_server_endpoint
+from .capabilities import detect_capabilities
 from .shells import create_shell
 
 
@@ -63,7 +64,7 @@ def load_config(path: Path) -> ClientConfig:
     debug_value = setting("DEBUG", "false").lower()
     if debug_value not in ("true", "false", "1", "0", "yes", "no", "on", "off"):
         raise ValueError("DEBUG must be true or false")
-    return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "powershell").lower(), debug=debug_value in ("true", "1", "yes", "on"))
+    return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "auto").lower(), debug=debug_value in ("true", "1", "yes", "on"))
 
 
 def main() -> None:
@@ -80,10 +81,17 @@ def main() -> None:
         logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO,
                             format="%(asctime)s %(levelname)s %(message)s")
         logging.info("starting client: shell=%s server=%s", config.shell, safe_server_endpoint(config.server_url))
+        capabilities = detect_capabilities(config.shell)
+        logging.info("detected OS=%s version=%s architecture=%s; shells=%s; default=%s",
+                     capabilities["operatingSystem"], capabilities["osVersion"],
+                     capabilities["architecture"],
+                     ", ".join(item["id"] for item in capabilities["shells"]),
+                     capabilities["defaultShell"])
         with single_instance_lock(config.state_path.with_suffix(config.state_path.suffix + ".lock")):
             journal = Journal(config.state_path)
             try:
-                Runner(HttpApi(config.server_url, config.bearer_key), journal, create_shell(config.shell)).run_forever()
+                Runner(HttpApi(config.server_url, config.bearer_key), journal,
+                       create_shell(capabilities["defaultShell"]), capabilities=capabilities).run_forever()
             finally:
                 journal.close()
     except KeyboardInterrupt:

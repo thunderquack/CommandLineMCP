@@ -49,6 +49,43 @@ public sealed class ClientJobApiTests
     }
 
     [TestMethod]
+    public async Task ClientPublishesCapabilitiesAndRejectsInvalidPayloads()
+    {
+        using var fixture = new ApiFixture();
+        await fixture.InitializeAsync();
+        using var factory = fixture.CreateFactory();
+        using var http = factory.CreateClient();
+
+        const string endpoint = "/api/client/capabilities";
+        var payload = new
+        {
+            operatingSystem = "Linux",
+            osVersion = "6.12.0",
+            architecture = "x86_64",
+            defaultShell = "bash",
+            shells = new[] { new { id = "bash", version = (string?)"5.2" }, new { id = "sh", version = (string?)null } }
+        };
+        Assert.AreEqual(HttpStatusCode.Unauthorized,
+            (await http.PutAsJsonAsync(endpoint, payload)).StatusCode);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Key);
+        Assert.AreEqual(HttpStatusCode.BadRequest,
+            (await http.PutAsJsonAsync(endpoint, new
+            {
+                operatingSystem = "Linux", osVersion = "6", architecture = "x86_64",
+                defaultShell = "fish", shells = new[] { new { id = "bash", version = "5" } }
+            })).StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, (await http.PutAsJsonAsync(endpoint, payload)).StatusCode);
+        await using var db = new CommandLineMcpDbContext(fixture.Options);
+        var client = await db.Clients.AsNoTracking().SingleAsync(x => x.Id == fixture.ClientId);
+        Assert.AreEqual("Linux", client.OperatingSystem);
+        Assert.AreEqual("6.12.0", client.OsVersion);
+        Assert.AreEqual("x86_64", client.Architecture);
+        Assert.AreEqual("bash", client.DefaultShell);
+        Assert.IsNotNull(client.CapabilitiesUpdatedAt);
+        StringAssert.Contains(client.ShellsJson!, "bash");
+    }
+
+    [TestMethod]
     public async Task UnknownBearerAndForeignJobAreNotAccessible()
     {
         using var fixture = new ApiFixture();

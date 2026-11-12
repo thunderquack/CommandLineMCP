@@ -23,7 +23,11 @@ public sealed class CommandTools
         if (!TryUserId(principal, out var userId) || !await access.IsOAuthAllowedAsync(userId, cancellationToken))
             return new(false, "unauthorized", []);
         var result = await clients.FindByOwnerAsync(userId, cancellationToken);
-        return new(true, null, result.Select(c => new ClientSummary(c.Id, c.Name, c.IsEnabled)).ToArray());
+        return new(true, null, result.Select(c => new ClientSummary(c.Id, c.Name, c.IsEnabled,
+            c.OperatingSystem, c.OsVersion, c.Architecture, c.DefaultShell,
+            string.IsNullOrWhiteSpace(c.ShellsJson) ? [] :
+                System.Text.Json.JsonSerializer.Deserialize<AvailableShell[]>(c.ShellsJson) ?? [],
+            c.CapabilitiesUpdatedAt)).ToArray());
     }
 
     /// <summary>
@@ -103,7 +107,12 @@ public sealed class CommandTools
     /// <summary>
     /// Представляет краткие сведения о клиенте.
     /// </summary>
-    public sealed record ClientSummary(Guid Id, string Name, bool IsEnabled);
+    public sealed record ClientSummary(Guid Id, string Name, bool IsEnabled,
+        string? OperatingSystem, string? OsVersion, string? Architecture,
+        string? DefaultShell, IReadOnlyList<AvailableShell> Shells,
+        DateTime? CapabilitiesUpdatedAt);
+
+    public sealed record AvailableShell(string Id, string? Version);
 
     /// <summary>
     /// Представляет результат постановки задания.

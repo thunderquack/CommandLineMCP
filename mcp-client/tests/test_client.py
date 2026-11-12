@@ -106,6 +106,39 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiError, "poll failed"):
             Runner(ErrorApi(), self.journal, FakeShell()).run_once()
 
+    def test_capabilities_publish_before_poll(self):
+        class CapabilityApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.requests = []
+
+            def request(self, method, path, payload=None):
+                self.requests.append((method, path, payload))
+                if path == "/api/client/capabilities":
+                    return 200, None
+                return super().request(method, path, payload)
+
+        api = CapabilityApi()
+        data = {"operatingSystem": "Linux", "osVersion": "1", "architecture": "x86_64",
+                "defaultShell": "bash", "shells": [{"id": "bash", "version": "5"}]}
+        runner = Runner(api, self.journal, FakeShell(), capabilities=data)
+        runner.run_once()
+        runner.run_once()
+        self.assertEqual(api.requests[0], ("PUT", "/api/client/capabilities", data))
+        self.assertEqual([x[1] for x in api.requests].count("/api/client/capabilities"), 1)
+
+    def test_old_server_without_capabilities_still_polls(self):
+        class LegacyApi(FakeApi):
+            def request(self, method, path, payload=None):
+                if path == "/api/client/capabilities":
+                    raise ApiError("server returned HTTP 404")
+                return super().request(method, path, payload)
+
+        with self.assertLogs("commandline_mcp_client", level="WARNING") as captured:
+            self.assertFalse(Runner(LegacyApi(), self.journal, FakeShell(),
+                                    capabilities={"shells": []}).run_once())
+        self.assertIn("does not support capabilities", "\n".join(captured.output))
+
     def test_debug_config_env_override(self):
         path = Path(self.temp.name) / ".env"
         path.write_text("SERVER_URL=https://example.org\nBEARER_KEY=secret\nDEBUG=true\n", encoding="utf-8")

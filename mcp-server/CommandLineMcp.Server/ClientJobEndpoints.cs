@@ -11,9 +11,35 @@ public static class ClientJobEndpoints
 
     public static IEndpointRouteBuilder MapClientJobEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapPut("/api/client/capabilities", PublishCapabilitiesAsync);
         endpoints.MapPost("/api/client/jobs/poll", PollAsync);
         endpoints.MapPost("/api/client/jobs/{jobId:guid}/result", SubmitResultAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> PublishCapabilitiesAsync(HttpRequest request,
+        CapabilitiesRequest? body, IClientRepository clients, CancellationToken ct)
+    {
+        if (!TryBearer(request, out var key)) return Results.Unauthorized();
+        var client = await FindClientAsync(clients, key, ct);
+        if (client is null) return Results.Unauthorized();
+
+        if (body is null || string.IsNullOrWhiteSpace(body.OperatingSystem)
+            || body.OperatingSystem.Length > 64 || string.IsNullOrWhiteSpace(body.OsVersion)
+            || body.OsVersion.Length > 256 || string.IsNullOrWhiteSpace(body.Architecture)
+            || body.Architecture.Length > 64 || string.IsNullOrWhiteSpace(body.DefaultShell)
+            || body.DefaultShell.Length > 32 || body.Shells is null
+            || body.Shells.Length is < 1 or > 16
+            || body.Shells.Any(s => s is null || string.IsNullOrWhiteSpace(s.Id)
+                || s.Id.Length > 32 || (s.Version?.Length ?? 0) > 128)
+            || body.Shells.Select(s => s.Id).Distinct(StringComparer.Ordinal).Count() != body.Shells.Length
+            || !body.Shells.Any(s => s.Id == body.DefaultShell))
+            return Results.BadRequest();
+
+        var json = System.Text.Json.JsonSerializer.Serialize(body.Shells);
+        await clients.UpdateCapabilitiesAsync(client.Id, body.OperatingSystem,
+            body.OsVersion, body.Architecture, body.DefaultShell, json, ct);
+        return Results.Ok();
     }
 
     private static async Task<IResult> PollAsync(HttpRequest request, PollRequest? body,
@@ -74,6 +100,10 @@ public static class ClientJobEndpoints
         key = value[7..].Trim();
         return key.Length > 0;
     }
+
+    public sealed record ShellCapability(string Id, string? Version);
+    public sealed record CapabilitiesRequest(string OperatingSystem, string OsVersion,
+        string Architecture, string DefaultShell, ShellCapability[] Shells);
 
     public sealed record PollRequest([property: JsonPropertyName("waitSeconds")] int WaitSeconds);
     public sealed record JobResponse(Guid JobId, string Command, string? WorkingDirectory, int TimeoutSeconds);

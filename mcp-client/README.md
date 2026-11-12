@@ -1,5 +1,13 @@
 # CommandLineMCP client
 
+At startup, the client detects the operating system, CPU architecture and
+available PowerShell 7, Windows PowerShell, Bash and sh executables. It
+publishes this information through PUT /api/client/capabilities before polling.
+The server exposes the published details through the MCP list_clients tool.
+SHELL=auto picks pwsh on Windows, bash/sh on Linux. Existing
+SHELL=powershell continues to select PowerShell 7 (pwsh).
+The client continues operating against older servers without this endpoint.
+
 The client polls the server, runs one PowerShell command at a time as the user
 who started it, and retries completed results from a local SQLite journal.
 Configuration is read from a local `.env` file with environment variables taking
@@ -40,7 +48,7 @@ Example configuration (`STATE_PATH` is relative to the config file directory):
 SERVER_URL=https://cmd.example.com
 BEARER_KEY=replace-with-issued-client-bearer-key
 STATE_PATH=client-state.sqlite3
-SHELL=powershell
+SHELL=auto
 DEBUG=false
 ```
 

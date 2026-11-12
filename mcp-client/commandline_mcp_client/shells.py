@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ class Shell(Protocol):
 class PowerShellShell:
     """PowerShell 7 adapter. Commands run with the client's user rights."""
 
-    def __init__(self, executable: str = "pwsh.exe"):
+    def __init__(self, executable: str = "pwsh"):
         self.executable = executable
 
     def execute(self, command: str, working_directory: str, timeout_seconds: float) -> ExecutionResult:
@@ -36,7 +37,8 @@ class PowerShellShell:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0,
+            start_new_session=os.name != "nt",
         )
         try:
             out, err = proc.communicate(timeout=timeout_seconds)
@@ -46,15 +48,56 @@ class PowerShellShell:
                 # Terminate descendants too, then collect any output already emitted.
                 subprocess.run(["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             else:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             out, err = proc.communicate()
             if isinstance(exc, KeyboardInterrupt):
                 raise
             return ExecutionResult(out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace"), None, True)
 
 
+
+class PosixShell:
+    """Run a POSIX shell explicitly, without relying on subprocess shell=True."""
+
+    def __init__(self, executable: str):
+        self.executable = executable
+
+    def execute(self, command: str, working_directory: str, timeout_seconds: float) -> ExecutionResult:
+        proc = subprocess.Popen(
+            [self.executable, "-c", command],
+            cwd=working_directory, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0,
+            start_new_session=os.name != "nt",
+        )
+        try:
+            out, err = proc.communicate(timeout=timeout_seconds)
+            return ExecutionResult(out.decode("utf-8", errors="replace"),
+                                   err.decode("utf-8", errors="replace"), proc.returncode)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            if os.name == "nt":
+                subprocess.run(["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            out, err = proc.communicate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            return ExecutionResult(out.decode("utf-8", errors="replace"),
+                                   err.decode("utf-8", errors="replace"), None, True)
+
+
 def create_shell(name: str) -> Shell:
+    if name == "pwsh":
+        return PowerShellShell("pwsh")
     if name == "powershell":
-        return PowerShellShell()
-    # Extension point: register cmd/Linux shell adapters here when implemented.
+        return PowerShellShell("powershell.exe")
+    if name in ("bash", "sh"):
+        return PosixShell(name)
     raise ValueError(f"unsupported shell: {name}")

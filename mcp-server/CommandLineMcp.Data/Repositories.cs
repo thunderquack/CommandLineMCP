@@ -94,6 +94,9 @@ public sealed record UserBatchUpdateResult(IReadOnlyList<long> MissingTelegramId
 public interface IClientRepository
 {
     Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<bool> UpdateCapabilitiesAsync(Guid clientId, string os, string osVersion,
+        string architecture, string defaultShell, string shellsJson,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Создаёт включённого клиента, принадлежащего указанному пользователю.
@@ -129,7 +132,9 @@ public interface IClientRepository
         CancellationToken cancellationToken = default);
 }
 
-public sealed record OwnedClient(Guid Id, string Name, bool IsEnabled, DateTime CreatedAt, DateTime UpdatedAt);
+public sealed record OwnedClient(Guid Id, string Name, bool IsEnabled, DateTime CreatedAt, DateTime UpdatedAt,
+    string? OperatingSystem = null, string? OsVersion = null, string? Architecture = null,
+    string? DefaultShell = null, string? ShellsJson = null, DateTime? CapabilitiesUpdatedAt = null);
 public sealed record OwnedJob(Guid Id, Guid ClientId, string Command, string? WorkingDirectory, int TimeoutSeconds,
     JobStatus Status, string? Stdout, string? Stderr, int? ExitCode, DateTime CreatedAt, DateTime UpdatedAt);
 
@@ -391,7 +396,8 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
 {
     public async Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default) =>
         await db.Clients.AsNoTracking().Where(x => x.UserId == userId)
-            .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt))
+            .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt,
+                x.OperatingSystem, x.OsVersion, x.Architecture, x.DefaultShell, x.ShellsJson, x.CapabilitiesUpdatedAt))
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
@@ -441,7 +447,24 @@ public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientReposi
         return ToOwnedClient(client);
     }
 
-    private static OwnedClient ToOwnedClient(Client c) => new(c.Id, c.Name, c.IsEnabled, c.CreatedAt, c.UpdatedAt);
+    private static OwnedClient ToOwnedClient(Client c) => new(c.Id, c.Name, c.IsEnabled, c.CreatedAt, c.UpdatedAt,
+        c.OperatingSystem, c.OsVersion, c.Architecture, c.DefaultShell, c.ShellsJson, c.CapabilitiesUpdatedAt);
+
+    public async Task<bool> UpdateCapabilitiesAsync(Guid clientId, string os, string osVersion,
+        string architecture, string defaultShell, string shellsJson,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await db.Clients.SingleOrDefaultAsync(c => c.Id == clientId && c.IsEnabled, cancellationToken);
+        if (client is null) return false;
+        client.OperatingSystem = os;
+        client.OsVersion = osVersion;
+        client.Architecture = architecture;
+        client.DefaultShell = defaultShell;
+        client.ShellsJson = shellsJson;
+        client.CapabilitiesUpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,

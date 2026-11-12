@@ -15,7 +15,7 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261112140645_AddOpenIddictAndClientEnabled";
+    public override string LastMigrationId => "20261112183517_AddClientCapabilities";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -28,12 +28,23 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
                     .ValueGeneratedOnAdd()
                     .HasColumnType("TEXT");
 
+                b.Property<string>("Architecture")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT");
+
                 b.Property<string>("BearerKeyHash")
                     .IsRequired()
                     .HasMaxLength(64)
                     .HasColumnType("TEXT");
 
+                b.Property<DateTime?>("CapabilitiesUpdatedAt")
+                    .HasColumnType("TEXT");
+
                 b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DefaultShell")
+                    .HasMaxLength(32)
                     .HasColumnType("TEXT");
 
                 b.Property<bool>("IsEnabled")
@@ -43,6 +54,17 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("Name")
                     .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("OperatingSystem")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("OsVersion")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ShellsJson")
                     .HasColumnType("TEXT");
 
                 b.Property<DateTime>("UpdatedAt")

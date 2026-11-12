@@ -81,6 +81,13 @@ public sealed class Client : IAuditedEntity
     /// <summary>Indicates whether the client key is active.</summary>
     public bool IsEnabled { get; set; } = true;
 
+    public string? OperatingSystem { get; set; }
+    public string? OsVersion { get; set; }
+    public string? Architecture { get; set; }
+    public string? DefaultShell { get; set; }
+    public string? ShellsJson { get; set; }
+    public DateTime? CapabilitiesUpdatedAt { get; set; }
+
     /// <inheritdoc />
     public DateTime CreatedAt { get; set; }
 

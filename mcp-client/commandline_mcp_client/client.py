@@ -180,8 +180,12 @@ def _valid_job(job: object) -> dict:
 
 
 class Runner:
-    def __init__(self, api: HttpTransport, journal: Journal, shell: Shell, wait_seconds: int = 30):
+    def __init__(self, api: HttpTransport, journal: Journal, shell: Shell,
+                 wait_seconds: int = 30, capabilities: dict | None = None):
         self.api, self.journal, self.shell, self.wait_seconds = api, journal, shell, wait_seconds
+        self.capabilities = capabilities
+        self._capabilities_published = capabilities is None
+        self._capabilities_unsupported = False
         self._online: bool | None = None
         self._pending_retry_reported = False
 
@@ -231,7 +235,26 @@ class Runner:
             raise result
         return result
 
+    def publish_capabilities(self) -> None:
+        if self._capabilities_published or self._capabilities_unsupported:
+            return
+        try:
+            status, _ = self._request_interruptibly(
+                "PUT", "/api/client/capabilities", self.capabilities
+            )
+        except ApiError as exc:
+            if str(exc) == "server returned HTTP 404":
+                LOG.warning("server does not support capabilities yet; continuing without publication")
+                self._capabilities_unsupported = True
+                return
+            raise
+        if status != 200:
+            raise ApiError(f"unexpected capabilities response HTTP {status}")
+        self._capabilities_published = True
+        LOG.info("client capabilities published to server")
+
     def run_once(self) -> bool:
+        self.publish_capabilities()
         self.upload_completed()
         # Confirm connection quickly on startup or after an outage.
         poll_wait = min(2, self.wait_seconds) if self._online is not True else self.wait_seconds
@@ -280,6 +303,8 @@ class Runner:
                 if self._online is not False:
                     LOG.warning("server offline; request failed: %s", exc)
                     self._online = False
+                    if self.capabilities is not None:
+                        self._capabilities_published = False
                 if self.journal.pending_results() and not self._pending_retry_reported:
                     LOG.info("completed result pending retry")
                     self._pending_retry_reported = True
