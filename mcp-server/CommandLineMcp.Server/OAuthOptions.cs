@@ -16,6 +16,9 @@ public sealed class OAuthOptions
 
     public string DataProtectionKeysPath { get; set; } = "/data/keys";
 
+    /// <summary>Allows HTTP between a TLS-terminating proxy and the app. Never expose that HTTP listener publicly.</summary>
+    public bool AllowHttpTransport { get; set; }
+
     public SigningCertificateOptions SigningCertificate { get; set; } = new();
 
     public sealed class SigningCertificateOptions

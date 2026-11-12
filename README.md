@@ -93,6 +93,16 @@ limited to trusted services. The setting defaults to `false`. The issuer stays f
 OAuth client and preserve the application's Content-Security-Policy; do not
 replace either with wildcard proxy rules.
 
+If the proxy-to-app connection is intentionally plain HTTP, set
+`OAuth__AllowHttpTransport=true` in local ignored deployment configuration. This
+opt-in disables HTTPS redirection and OpenIddict's transport security checks for
+the internal hop; it does not change the HTTPS issuer, MCP resource, or Telegram
+callback URL. Keep the server HTTP listener reachable only from the TLS proxy.
+The option defaults to `false` and does not trust forwarded headers; configure
+`ForwardedHeaders__KnownProxies` or the explicitly network-scoped
+`ForwardedHeaders__TrustAllProxies` separately when forwarded headers are
+needed.
+
 ## Admin CLI
 
 The server image also contains `CommandLineMcp.Admin` at `/app/admin`. Run an

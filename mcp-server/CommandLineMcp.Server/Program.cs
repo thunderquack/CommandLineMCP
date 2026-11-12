@@ -59,7 +59,10 @@ public partial class Program
         var app = builder.Build();
         app.UseForwardedHeaders();
         app.UseMiddleware<OAuthCorsMiddleware>();
-        app.UseHttpsRedirection();
+        if (!oauthOptions.AllowHttpTransport)
+        {
+            app.UseHttpsRedirection();
+        }
         app.UseAuthentication();
         app.UseRateLimiter();
         app.Use(async (context, next) =>

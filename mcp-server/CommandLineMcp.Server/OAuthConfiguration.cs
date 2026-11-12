@@ -58,12 +58,23 @@ public static class OAuthConfiguration
                     .SetRefreshTokenReuseLeeway(TimeSpan.Zero)
                     .UseReferenceRefreshTokens();
                 builder.AddSigningCertificate(certificate).AddEncryptionCertificate(certificate);
-                builder.UseAspNetCore().EnableAuthorizationEndpointPassthrough().EnableTokenEndpointPassthrough();
+                var aspNetCore = builder.UseAspNetCore();
+                if (options.AllowHttpTransport)
+                {
+                    aspNetCore.DisableTransportSecurityRequirement();
+                }
+                aspNetCore.EnableAuthorizationEndpointPassthrough().EnableTokenEndpointPassthrough();
                 builder.AddEventHandler<OpenIddictServerEvents.ApplyConfigurationResponseContext>(handler =>
                     handler.UseInlineHandler(context =>
                     {
                         if (context.Error is null)
+                        {
+                            context.Response.SetParameter("issuer", options.Issuer);
+                            context.Response.SetParameter("authorization_endpoint", options.Issuer.TrimEnd('/') + "/connect/authorize");
+                            context.Response.SetParameter("token_endpoint", options.Issuer.TrimEnd('/') + "/connect/token");
+                            context.Response.SetParameter("revocation_endpoint", options.Issuer.TrimEnd('/') + "/connect/revoke");
                             context.Response.SetParameter("registration_endpoint", options.Issuer.TrimEnd('/') + "/register");
+                        }
                         return ValueTask.CompletedTask;
                     }));
                 builder.AddEventHandler<OpenIddictServerEvents.ApplyTokenResponseContext>(handler =>

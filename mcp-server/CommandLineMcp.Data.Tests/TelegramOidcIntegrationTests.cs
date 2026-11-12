@@ -174,6 +174,39 @@ public sealed class TelegramOidcIntegrationTests
     }
 
     [TestMethod]
+    public async Task InternalHttpOptInServesDiscoveryAndKeepsPublicOAuthUrisAndMcpProtected()
+    {
+        using var fixture = new AuthHostFixture(allowHttpTransport: true);
+        using var http = fixture.CreateClient("http://localhost");
+        using var discoveryResponse = await http.GetAsync("/.well-known/openid-configuration");
+        Assert.AreEqual(HttpStatusCode.OK, discoveryResponse.StatusCode, await discoveryResponse.Content.ReadAsStringAsync());
+        using var discovery = JsonDocument.Parse(await discoveryResponse.Content.ReadAsStringAsync());
+        Assert.AreEqual("https://localhost/", discovery.RootElement.GetProperty("issuer").GetString());
+        Assert.AreEqual("https://localhost/connect/authorize", discovery.RootElement.GetProperty("authorization_endpoint").GetString());
+        using var protectedResourceResponse = await http.GetAsync("/.well-known/oauth-protected-resource/mcp");
+        using var protectedResource = JsonDocument.Parse(await protectedResourceResponse.Content.ReadAsStringAsync());
+        Assert.AreEqual("https://localhost/mcp", protectedResource.RootElement.GetProperty("resource").GetString());
+
+        var login = await http.GetAsync("/login");
+        var authorize = login.Headers.Location!;
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(authorize.Query);
+        Assert.AreEqual("https://localhost/auth/telegram/callback", query["redirect_uri"].ToString());
+
+        using var anonymousMcp = await http.PostAsync("/mcp", new StringContent("{}", Encoding.UTF8, "application/json"));
+        Assert.AreEqual(HttpStatusCode.Unauthorized, anonymousMcp.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task HttpTransportRemainsRejectedByDefault()
+    {
+        using var fixture = new AuthHostFixture();
+        using var http = fixture.CreateClient("http://localhost");
+        using var response = await http.GetAsync("/.well-known/openid-configuration");
+        Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+            "With the opt-in disabled, OpenIddict must reject OAuth metadata requests over HTTP.");
+    }
+
+    [TestMethod]
     public async Task PkceAuthorizationRefreshAndRealMcpSdkFlow()
     {
         using var fixture = new AuthHostFixture();
@@ -597,7 +630,7 @@ public sealed class TelegramOidcIntegrationTests
         public TestServer Server => _factory.Server;
         public string RootPath => _root;
 
-        public AuthHostFixture()
+        public AuthHostFixture(bool allowHttpTransport = false)
         {
             Directory.CreateDirectory(_root);
             using var certificateKey = RSA.Create(2048);
@@ -632,6 +665,7 @@ public sealed class TelegramOidcIntegrationTests
                 ["OAuth:SecretsFile"] = secretsFile,
                 ["OAuth:Issuer"] = "https://localhost/",
                 ["OAuth:Resource"] = "https://localhost/mcp",
+                ["OAuth:AllowHttpTransport"] = allowHttpTransport.ToString(),
                 ["OAuth:DataProtectionKeysPath"] = Path.Combine(_root, "keys"),
                 ["OAuth:SigningCertificate:PfxBase64"] = Convert.ToBase64String(pfx),
                 ["OAuth:SigningCertificate:Password"] = password,
@@ -667,6 +701,13 @@ public sealed class TelegramOidcIntegrationTests
         public HttpClient CreateClient() => _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+            HandleCookies = true
+        });
+
+        public HttpClient CreateClient(string baseAddress) => _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri(baseAddress),
             AllowAutoRedirect = false,
             HandleCookies = true
         });

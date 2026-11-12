@@ -61,6 +61,12 @@ public static class TelegramAuthentication
                     options.TokenValidationParameters.NameClaimType = "name";
                     options.Events = new OpenIdConnectEvents
                     {
+                        OnRedirectToIdentityProvider = context =>
+                        {
+                            var issuer = configuration["OAuth:Issuer"] ?? "https://cmd.example.com/";
+                            context.ProtocolMessage.RedirectUri = new Uri(new Uri(issuer), "auth/telegram/callback").AbsoluteUri;
+                            return Task.CompletedTask;
+                        },
                         OnTokenValidated = async context =>
                         {
                             var principal = context.Principal;
