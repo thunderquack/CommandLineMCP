@@ -1,0 +1,6 @@
+[project]
+name = "commandline-mcp-client"
+version = "0.1.0"
+description = "CommandLineMCP client"
+requires-python = ">=3.14"
+dependencies = []
