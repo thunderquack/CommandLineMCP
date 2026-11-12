@@ -12,21 +12,22 @@ if (!string.IsNullOrWhiteSpace(databaseDirectory))
     Directory.CreateDirectory(databaseDirectory);
 }
 builder.Services.AddDbContext<CommandLineMcpDbContext>(options => options.UseSqlite(connectionString));
+builder.Services.AddCommandLineMcpDataRepositories();
 builder.Services.AddHostedService<UnknownJobWorker>();
 
 var app = builder.Build();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<CommandLineMcpDbContext>();
-    await db.Database.MigrateAsync();
+    var database = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenance>();
+    await database.MigrateAsync();
 }
 
-app.MapGet("/health", async (CommandLineMcpDbContext db, CancellationToken cancellationToken) =>
+app.MapGet("/health", async (IDatabaseMaintenance database, CancellationToken cancellationToken) =>
 {
     try
     {
-        return await db.Database.CanConnectAsync(cancellationToken)
+        return await database.CanConnectAsync(cancellationToken)
             ? Results.Ok(new { status = "healthy", database = "reachable" })
             : Results.Json(new { status = "unhealthy", database = "unreachable" }, statusCode: 503);
     }

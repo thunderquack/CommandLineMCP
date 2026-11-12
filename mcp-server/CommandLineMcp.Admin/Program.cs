@@ -1,6 +1,7 @@
 using CommandLineMcp.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 if (args.Length == 1 && args[0] is "--help" or "-h" or "help")
 {
@@ -20,11 +21,13 @@ try
         if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
     }
 
-    var options = new DbContextOptionsBuilder<CommandLineMcpDbContext>()
-        .UseSqlite(connectionString)
-        .Options;
-    await using var db = new CommandLineMcpDbContext(options);
-    return await AdminCommandRunner.RunAsync(args, db, Console.Out, Console.Error);
+    var services = new ServiceCollection();
+    services.AddDbContext<CommandLineMcpDbContext>(options => options.UseSqlite(connectionString));
+    services.AddCommandLineMcpDataRepositories();
+    await using var provider = services.BuildServiceProvider();
+    var users = provider.GetRequiredService<IUserRepository>();
+    var database = provider.GetRequiredService<IDatabaseMaintenance>();
+    return await AdminCommandRunner.RunAsync(args, users, database, Console.Out, Console.Error);
 }
 catch (Exception)
 {

@@ -18,7 +18,7 @@ public sealed class AdminCommandRunnerTests
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
         var stderr = new StringWriter(CultureInfo.InvariantCulture);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "allow-oauth", "1001", "1002"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "allow-oauth", "1001", "1002"], db, stdout, stderr));
         var created = await db.Users.OrderBy(x => x.TelegramId).ToListAsync();
         Assert.AreEqual(2, created.Count);
         Assert.IsTrue(created.All(x => x.IsOAuthAllowed && x.RoleId == 0));
@@ -27,19 +27,19 @@ public sealed class AdminCommandRunnerTests
         created[0].IsOAuthAllowed = false;
         created[1].RoleId = 23;
         await db.SaveChangesAsync();
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "allow-oauth", "1001"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "allow-oauth", "1001"], db, stdout, stderr));
         Assert.AreEqual(17, (await db.Users.SingleAsync(x => x.TelegramId == 1001)).RoleId);
         Assert.IsTrue((await db.Users.SingleAsync(x => x.TelegramId == 1001)).IsOAuthAllowed);
         var afterAllow = (await db.Users.SingleAsync(x => x.TelegramId == 1001)).UpdatedAt;
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "allow-oauth", "1001"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "allow-oauth", "1001"], db, stdout, stderr));
         Assert.AreEqual(afterAllow, (await db.Users.SingleAsync(x => x.TelegramId == 1001)).UpdatedAt);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "deny-oauth", "1001", "1002"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "deny-oauth", "1001", "1002"], db, stdout, stderr));
         var denied = await db.Users.OrderBy(x => x.TelegramId).ToListAsync();
         Assert.IsFalse(denied.Any(x => x.IsOAuthAllowed));
         CollectionAssert.AreEqual(new[] { 17, 23 }, denied.Select(x => x.RoleId).ToArray());
         var afterDeny = denied[0].UpdatedAt;
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "deny-oauth", "1001", "1002"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "deny-oauth", "1001", "1002"], db, stdout, stderr));
         Assert.AreEqual(afterDeny, (await db.Users.SingleAsync(x => x.TelegramId == 1001)).UpdatedAt);
     }
 
@@ -55,14 +55,14 @@ public sealed class AdminCommandRunnerTests
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
         var stderr = new StringWriter(CultureInfo.InvariantCulture);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "set-role", "2001", "0"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "set-role", "2001", "0"], db, stdout, stderr));
         var updated = await db.Users.SingleAsync();
         Assert.AreEqual(0, updated.RoleId);
         Assert.IsTrue(updated.IsOAuthAllowed);
         var changedUpdatedAt = updated.UpdatedAt;
         Assert.AreEqual(DateTimeKind.Utc, changedUpdatedAt.Kind);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "set-role", "2001", "0"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "set-role", "2001", "0"], db, stdout, stderr));
         Assert.AreEqual(changedUpdatedAt, (await db.Users.SingleAsync()).UpdatedAt);
         Assert.AreNotEqual(originalUpdatedAt, changedUpdatedAt);
     }
@@ -80,16 +80,16 @@ public sealed class AdminCommandRunnerTests
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
         var stderr = new StringWriter(CultureInfo.InvariantCulture);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "allow-oauth", "9999"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "allow-oauth", "9999"], db, stdout, stderr));
         var created = await db.Users.SingleAsync(x => x.TelegramId == 9999);
         Assert.IsTrue(created.IsOAuthAllowed);
         Assert.AreEqual(0, created.RoleId);
-        Assert.AreEqual(3, await AdminCommandRunner.RunAsync(["users", "deny-oauth", "9998"], db, stdout, stderr));
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "allow-oauth"], db, stdout, stderr));
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "show", "0"], db, stdout, stderr));
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "deny-oauth", "9223372036854775808"], db, stdout, stderr));
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "set-role", "3001", "01"], db, stdout, stderr));
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "set-role", "3001", "2"], db, stdout, stderr));
+        Assert.AreEqual(3, await RunAsync(["users", "deny-oauth", "9998"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "allow-oauth"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "show", "0"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "deny-oauth", "9223372036854775808"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "set-role", "3001", "01"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "set-role", "3001", "2"], db, stdout, stderr));
 
         db.ChangeTracker.Clear();
         var after = await db.Users.SingleAsync(x => x.TelegramId == 3001);
@@ -110,7 +110,7 @@ public sealed class AdminCommandRunnerTests
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
         var stderr = new StringWriter(CultureInfo.InvariantCulture);
 
-        Assert.AreEqual(2, await AdminCommandRunner.RunAsync(["users", "allow-oauth", "4001", "0"], db, stdout, stderr));
+        Assert.AreEqual(2, await RunAsync(["users", "allow-oauth", "4001", "0"], db, stdout, stderr));
         db.ChangeTracker.Clear();
         var saved = await db.Users.SingleAsync();
         Assert.IsFalse(saved.IsOAuthAllowed);
@@ -130,7 +130,7 @@ public sealed class AdminCommandRunnerTests
         var stdout = new StringWriter(CultureInfo.InvariantCulture);
         var stderr = new StringWriter(CultureInfo.InvariantCulture);
 
-        Assert.AreEqual(0, await AdminCommandRunner.RunAsync(["users", "show", "5001"], db, stdout, stderr));
+        Assert.AreEqual(0, await RunAsync(["users", "show", "5001"], db, stdout, stderr));
         var output = stdout.ToString();
         Assert.IsTrue(output.Contains("5001", StringComparison.Ordinal));
         Assert.IsTrue(output.Contains("true", StringComparison.OrdinalIgnoreCase));
@@ -167,6 +167,9 @@ public sealed class AdminCommandRunnerTests
         Assert.AreEqual(0, user.RoleId);
         Assert.IsTrue(user.IsOAuthAllowed);
     }
+
+    private static Task<int> RunAsync(string[] args, CommandLineMcpDbContext db, TextWriter stdout, TextWriter stderr) =>
+        AdminCommandRunner.RunAsync(args, new UserRepository(db), new DatabaseMaintenance(db), stdout, stderr);
 
     private sealed class TemporaryDatabase : IDisposable
     {

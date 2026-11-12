@@ -1,6 +1,5 @@
 using System.Globalization;
 using CommandLineMcp.Data;
-using Microsoft.EntityFrameworkCore;
 
 public static class AdminCommandRunner
 {
@@ -15,7 +14,8 @@ public static class AdminCommandRunner
 
     public static async Task<int> RunAsync(
         string[] args,
-        CommandLineMcpDbContext db,
+        IUserRepository users,
+        IDatabaseMaintenance database,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken = default)
@@ -24,23 +24,23 @@ public static class AdminCommandRunner
 
         try
         {
-            await db.Database.MigrateAsync(cancellationToken);
+            await database.MigrateAsync(cancellationToken);
 
             switch (command)
             {
                 case "allow-oauth":
-                    await ApplyOAuthAsync(db, ids, true, cancellationToken);
+                    await users.AllowOAuthAsync(ids, cancellationToken);
                     await stdout.WriteLineAsync($"OAuth allowed for {ids.Length} user(s).");
                     return 0;
                 case "deny-oauth":
-                    return await ApplyExistingAsync(db, ids, user => user.IsOAuthAllowed = false,
-                        "OAuth denied", stdout, cancellationToken);
+                    return await ApplyExistingAsync(await users.DenyOAuthAsync(ids, cancellationToken), ids,
+                        "OAuth denied", stdout, stderr);
                 case "set-role":
-                    return await ApplyExistingAsync(db, ids, user => user.RoleId = role,
-                        "Role updated", stdout, cancellationToken);
+                    return await ApplyExistingAsync(await users.SetRoleAsync(ids, role, cancellationToken), ids,
+                        "Role updated", stdout, stderr);
                 case "show":
                 {
-                    var user = await db.Users.SingleOrDefaultAsync(x => x.TelegramId == ids[0], cancellationToken);
+                    var user = await users.FindByTelegramIdAsync(ids[0], cancellationToken);
                     if (user is null)
                     {
                         await stderr.WriteLineAsync($"User with Telegram ID {ids[0]} was not found.");
@@ -57,11 +57,6 @@ public static class AdminCommandRunner
                     return 2;
             }
         }
-        catch (MissingUsersException ex)
-        {
-            await stderr.WriteLineAsync($"User(s) not found: {string.Join(", ", ex.TelegramIds)}.");
-            return 3;
-        }
         catch (Exception)
         {
             await stderr.WriteLineAsync("Database operation failed.");
@@ -69,49 +64,14 @@ public static class AdminCommandRunner
         }
     }
 
-    private static async Task ApplyOAuthAsync(CommandLineMcpDbContext db, long[] ids, bool allowed,
-        CancellationToken cancellationToken)
+    private static async Task<int> ApplyExistingAsync(UserBatchUpdateResult result, long[] ids,
+        string success, TextWriter stdout, TextWriter stderr)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var users = await db.Users.Where(user => ids.Contains(user.TelegramId)).ToListAsync(cancellationToken);
-        var known = users.Select(x => x.TelegramId).ToHashSet();
-        var created = false;
-        foreach (var id in ids.Where(id => !known.Contains(id)))
+        if (!result.Succeeded)
         {
-            db.Users.Add(new User { TelegramId = id, IsOAuthAllowed = allowed, RoleId = 0 });
-            created = true;
+            await stderr.WriteLineAsync($"User(s) not found: {string.Join(", ", result.MissingTelegramIds)}.");
+            return 3;
         }
-
-        var changed = false;
-        foreach (var user in users)
-        {
-            if (user.IsOAuthAllowed == allowed) continue;
-            user.IsOAuthAllowed = allowed;
-            changed = true;
-        }
-        if (changed || created) await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    private static async Task<int> ApplyExistingAsync(CommandLineMcpDbContext db, long[] ids,
-        Action<User> apply, string success, TextWriter stdout, CancellationToken cancellationToken)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var users = await db.Users.Where(user => ids.Contains(user.TelegramId)).ToListAsync(cancellationToken);
-        var found = users.Select(x => x.TelegramId).ToHashSet();
-        var missing = ids.Where(id => !found.Contains(id)).ToArray();
-        if (missing.Length != 0) throw new MissingUsersException(missing);
-
-        var changed = false;
-        foreach (var user in users)
-        {
-            var oldRole = user.RoleId;
-            var oldOAuth = user.IsOAuthAllowed;
-            apply(user);
-            changed |= user.RoleId != oldRole || user.IsOAuthAllowed != oldOAuth;
-        }
-        if (changed) await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         await stdout.WriteLineAsync($"{success} for {ids.Length} user(s).");
         return 0;
     }
@@ -157,8 +117,4 @@ public static class AdminCommandRunner
         return true;
     }
 
-    private sealed class MissingUsersException(long[] telegramIds) : Exception
-    {
-        public long[] TelegramIds { get; } = telegramIds;
-    }
 }

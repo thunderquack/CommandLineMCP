@@ -51,7 +51,14 @@ and 1 for database errors. Use `--help` for command syntax.
 
 ## Create or apply migrations
 
-The `CommandLineMcp.Data` project contains the DbContext and design-time factory.
+The `CommandLineMcp.Data` project contains the DbContext, repositories, database
+maintenance implementation, and design-time factory. Server endpoints, workers,
+and the Admin CLI use the Data project through repository and maintenance
+interfaces. EF Core queries and database operations stay inside
+`CommandLineMcp.Data`; composition roots may register and configure the DbContext.
+The interfaces return materialized domain objects and never expose `IQueryable`.
+Repository behavior is covered by SQLite integration tests, while consumers can
+be tested with mocked interfaces.
 From `mcp-server`:
 
 ```powershell

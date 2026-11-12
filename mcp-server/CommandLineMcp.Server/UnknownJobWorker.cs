@@ -1,5 +1,3 @@
-using CommandLineMcp.Data;
-
 namespace CommandLineMcp.Server;
 
 public sealed class UnknownJobWorker(IServiceScopeFactory scopeFactory, ILogger<UnknownJobWorker> logger) : BackgroundService
@@ -12,8 +10,8 @@ public sealed class UnknownJobWorker(IServiceScopeFactory scopeFactory, ILogger<
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<CommandLineMcpDbContext>();
-                await ClientJobEndpoints.ExpireAllStaleRunningAsync(db, stoppingToken);
+                var jobs = scope.ServiceProvider.GetRequiredService<CommandLineMcp.Data.IJobRepository>();
+                await jobs.ExpireStaleRunningAsync(null, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

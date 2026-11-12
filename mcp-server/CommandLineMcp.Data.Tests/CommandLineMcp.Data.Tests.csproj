@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="MSTest" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Moq" />
   </ItemGroup>
 
   <ItemGroup>
