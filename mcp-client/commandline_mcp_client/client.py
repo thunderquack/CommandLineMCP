@@ -233,8 +233,12 @@ class Runner:
 
     def run_once(self) -> bool:
         self.upload_completed()
+        # Confirm connection quickly on startup or after an outage.
+        poll_wait = min(2, self.wait_seconds) if self._online is not True else self.wait_seconds
+        if self._online is not True:
+            LOG.info("connecting to server; checking availability...")
         status, payload = self._request_interruptibly(
-            "POST", "/api/client/jobs/poll", {"waitSeconds": self.wait_seconds}
+            "POST", "/api/client/jobs/poll", {"waitSeconds": poll_wait}
         )
         if status == 204:
             self._mark_online()

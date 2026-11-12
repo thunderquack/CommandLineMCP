@@ -6,8 +6,10 @@ Configuration is read from a local `.env` file with environment variables taking
 precedence.
 
 At startup, the client logs the selected shell and a sanitized server endpoint.
-After the first successful poll it reports that it is connected and waiting for
-jobs; connection loss and recovery are logged only when the state changes. Job
+The client immediately reports that it is connecting. Its first poll waits at
+most 2 seconds to confirm availability, while subsequent long polls wait up to
+30 seconds for jobs. After the first successful poll it reports that it is
+connected and waiting for jobs; connection loss and recovery are logged only when the state changes. Job
 logs include the job ID, execution outcome, and result acknowledgement. Commands,
 command output, and bearer keys are not included in normal status logs. With
 DEBUG=true, commands and their stdout/stderr are printed to the console, but

@@ -68,6 +68,26 @@ class ClientTests(unittest.TestCase):
         self.assertNotIn("secret-output", logs)
         self.assertNotIn("secret-error", logs)
 
+    def test_short_initial_poll_then_normal_long_poll(self):
+        class RecordingApi(FakeApi):
+            def __init__(self):
+                super().__init__()
+                self.poll_waits = []
+
+            def request(self, method, path, payload=None):
+                if path == "/api/client/jobs/poll":
+                    self.poll_waits.append(payload["waitSeconds"])
+                return super().request(method, path, payload)
+
+        api = RecordingApi()
+        runner = Runner(api, self.journal, FakeShell(), wait_seconds=30)
+        with self.assertLogs("commandline_mcp_client", level="INFO") as captured:
+            runner.run_once()
+            runner.run_once()
+        self.assertEqual(api.poll_waits, [2, 30])
+        self.assertIn("connecting to server; checking availability...", "\n".join(captured.output))
+        self.assertEqual(sum("connected to server; waiting for jobs" in line for line in captured.output), 1)
+
     def test_debug_logs_command_and_result(self):
         api = FakeApi([{**JOB, "command": "Write-Output debug-test"}])
         with self.assertLogs("commandline_mcp_client", level="DEBUG") as captured:
