@@ -78,6 +78,9 @@ public sealed class Client : IAuditedEntity
     /// </summary>
     public string BearerKeyHash { get; set; } = null!;
 
+    /// <summary>Indicates whether the client key is active.</summary>
+    public bool IsEnabled { get; set; } = true;
+
     /// <inheritdoc />
     public DateTime CreatedAt { get; set; }
 

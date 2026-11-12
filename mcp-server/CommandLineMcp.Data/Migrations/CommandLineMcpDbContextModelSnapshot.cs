@@ -15,7 +15,7 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261112122053_AddUserRoleId";
+    public override string LastMigrationId => "20261112140645_AddOpenIddictAndClientEnabled";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -35,6 +35,11 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<DateTime>("CreatedAt")
                     .HasColumnType("TEXT");
+
+                b.Property<bool>("IsEnabled")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("INTEGER")
+                    .HasDefaultValue(true);
 
                 b.Property<string>("Name")
                     .IsRequired()
@@ -141,6 +146,214 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("Users");
             });
 
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+            {
+                b.Property<string>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ApplicationType")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ClientId")
+                    .HasMaxLength(100)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ClientSecret")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ClientType")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ConcurrencyToken")
+                    .IsConcurrencyToken()
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ConsentType")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DisplayName")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DisplayNames")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("JsonWebKeySet")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Permissions")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("PostLogoutRedirectUris")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Properties")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("RedirectUris")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Requirements")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Settings")
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("ClientId")
+                    .IsUnique();
+
+                b.ToTable("OpenIddictApplications");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+            {
+                b.Property<string>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ApplicationId")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ConcurrencyToken")
+                    .IsConcurrencyToken()
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTime?>("CreationDate")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Properties")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Scopes")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Status")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Subject")
+                    .HasMaxLength(400)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Type")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("ApplicationId", "Status", "Subject", "Type");
+
+                b.ToTable("OpenIddictAuthorizations");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreScope", b =>
+            {
+                b.Property<string>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ConcurrencyToken")
+                    .IsConcurrencyToken()
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Description")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Descriptions")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DisplayName")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DisplayNames")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Name")
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Properties")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Resources")
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("Name")
+                    .IsUnique();
+
+                b.ToTable("OpenIddictScopes");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+            {
+                b.Property<string>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ApplicationId")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("AuthorizationId")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ConcurrencyToken")
+                    .IsConcurrencyToken()
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTime?>("CreationDate")
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTime?>("ExpirationDate")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Payload")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Properties")
+                    .HasColumnType("TEXT");
+
+                b.Property<DateTime?>("RedemptionDate")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ReferenceId")
+                    .HasMaxLength(100)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Status")
+                    .HasMaxLength(50)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Subject")
+                    .HasMaxLength(400)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Type")
+                    .HasMaxLength(150)
+                    .HasColumnType("TEXT");
+
+                b.HasKey("Id");
+
+                b.HasIndex("AuthorizationId");
+
+                b.HasIndex("ReferenceId")
+                    .IsUnique();
+
+                b.HasIndex("ApplicationId", "Status", "Subject", "Type");
+
+                b.ToTable("OpenIddictTokens");
+            });
+
         modelBuilder.Entity("CommandLineMcp.Data.Client", b =>
             {
                 b.HasOne("CommandLineMcp.Data.User", "User")
@@ -163,6 +376,30 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
                 b.Navigation("Client");
             });
 
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+            {
+                b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                    .WithMany("Authorizations")
+                    .HasForeignKey("ApplicationId");
+
+                b.Navigation("Application");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+            {
+                b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                    .WithMany("Tokens")
+                    .HasForeignKey("ApplicationId");
+
+                b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", "Authorization")
+                    .WithMany("Tokens")
+                    .HasForeignKey("AuthorizationId");
+
+                b.Navigation("Application");
+
+                b.Navigation("Authorization");
+            });
+
         modelBuilder.Entity("CommandLineMcp.Data.Client", b =>
             {
                 b.Navigation("Jobs");
@@ -171,6 +408,18 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("CommandLineMcp.Data.User", b =>
             {
                 b.Navigation("Clients");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+            {
+                b.Navigation("Authorizations");
+
+                b.Navigation("Tokens");
+            });
+
+        modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+            {
+                b.Navigation("Tokens");
             });
 #pragma warning restore 612, 618
     }

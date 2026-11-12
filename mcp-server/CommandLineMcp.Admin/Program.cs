@@ -9,6 +9,11 @@ if (args.Length == 1 && args[0] is "--help" or "-h" or "help")
     return 0;
 }
 
+if (args.Length > 0 && args[0] == "auth")
+{
+    return await AuthSecretsInitializer.RunAsync(args, Console.Out, Console.Error);
+}
+
 var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Database")
     ?? "Data Source=data/commandline-mcp.db";
 try

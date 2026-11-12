@@ -29,11 +29,14 @@ public sealed class CommandLineMcpDbContext(DbContextOptions<CommandLineMcpDbCon
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Name).IsRequired();
             entity.Property(x => x.BearerKeyHash).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.IsEnabled).IsRequired().HasDefaultValue(true);
             entity.HasIndex(x => x.BearerKeyHash).IsUnique();
             entity.HasOne(x => x.User).WithMany(x => x.Clients).HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict).IsRequired();
             ConfigureAudit(entity);
         });
+
+        modelBuilder.UseOpenIddict();
 
         modelBuilder.Entity<Job>(entity =>
         {

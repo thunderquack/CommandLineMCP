@@ -199,6 +199,7 @@ public sealed class ClientJobApiTests
         public WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                TestAuthHostConfiguration.Apply(builder, _directory, ConnectionString);
                 builder.UseSetting("ConnectionStrings:Database", ConnectionString);
                 builder.ConfigureAppConfiguration((_, config) =>
                     config.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Database"] = ConnectionString }));

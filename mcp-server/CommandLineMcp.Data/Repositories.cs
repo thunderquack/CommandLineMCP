@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
 
 namespace CommandLineMcp.Data;
 
@@ -7,6 +8,8 @@ namespace CommandLineMcp.Data;
 /// </summary>
 public interface IJobRepository
 {
+    Task<OwnedJob> CreateAsync(Guid clientId, string command, string? workingDirectory, int timeoutSeconds, CancellationToken cancellationToken = default);
+    Task<OwnedJob?> FindOwnedByIdAsync(Guid userId, Guid jobId, CancellationToken cancellationToken = default);
     /// <summary>
     /// Переводит просроченные выполняющиеся задания в состояние с неизвестным исходом.
     /// </summary>
@@ -44,6 +47,8 @@ public enum JobResultSubmissionOutcome { Accepted, IdenticalRetry, Conflict, Not
 /// </summary>
 public interface IUserRepository
 {
+    Task<User> FindOrCreateByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default);
+    Task<User?> FindByIdAsync(Guid userId, CancellationToken cancellationToken = default);
     /// <summary>
     /// Находит пользователя по Telegram ID.
     /// </summary>
@@ -88,6 +93,11 @@ public sealed record UserBatchUpdateResult(IReadOnlyList<long> MissingTelegramId
 /// </summary>
 public interface IClientRepository
 {
+    Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<OwnedClient> CreateAsync(Guid userId, string name, string uppercaseSha256Hash, CancellationToken cancellationToken = default);
+    Task<OwnedClient?> RenameAsync(Guid userId, Guid clientId, string name, CancellationToken cancellationToken = default);
+    Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default);
+    Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
     /// <summary>
     /// Находит клиентов, хеш ключа которых совпадает с переданным SHA-256 хешем без учёта регистра.
     /// </summary>
@@ -96,6 +106,21 @@ public interface IClientRepository
     /// <returns>Список совпавших клиентов; пустой список, если совпадений нет.</returns>
     Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,
         CancellationToken cancellationToken = default);
+}
+
+public sealed record OwnedClient(Guid Id, string Name, bool IsEnabled, DateTime CreatedAt, DateTime UpdatedAt);
+public sealed record OwnedJob(Guid Id, Guid ClientId, string Command, string? WorkingDirectory, int TimeoutSeconds,
+    JobStatus Status, string? Stdout, string? Stderr, int? ExitCode, DateTime CreatedAt, DateTime UpdatedAt);
+
+public interface IUserAccessValidator
+{
+    Task<bool> IsOAuthAllowedAsync(Guid userId, CancellationToken cancellationToken = default);
+}
+
+public sealed class UserAccessValidator(IUserRepository users) : IUserAccessValidator
+{
+    public async Task<bool> IsOAuthAllowedAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        (await users.FindByIdAsync(userId, cancellationToken))?.IsOAuthAllowed == true;
 }
 
 /// <summary>
@@ -118,10 +143,41 @@ public interface IDatabaseMaintenance
     Task<bool> CanConnectAsync(CancellationToken cancellationToken = default);
 }
 
+public interface IOAuthScopeRepository
+{
+    Task EnsureCommandsResourceAsync(string resource, CancellationToken cancellationToken = default);
+}
+
 /// <inheritdoc />
 public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
 {
     private const int UnknownGraceSeconds = 120;
+
+    public async Task<OwnedJob> CreateAsync(Guid clientId, string command, string? workingDirectory, int timeoutSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        var job = new Job
+        {
+            ClientId = clientId,
+            Command = command,
+            WorkingDirectory = workingDirectory,
+            TimeoutSeconds = timeoutSeconds,
+            Status = JobStatus.Pending
+        };
+        db.Jobs.Add(job);
+        await db.SaveChangesAsync(cancellationToken);
+        return ToOwnedJob(job);
+    }
+
+    public async Task<OwnedJob?> FindOwnedByIdAsync(Guid userId, Guid jobId, CancellationToken cancellationToken = default)
+    {
+        var job = await db.Jobs.AsNoTracking().Include(x => x.Client)
+            .SingleOrDefaultAsync(x => x.Id == jobId && x.Client.UserId == userId, cancellationToken);
+        return job is null ? null : ToOwnedJob(job);
+    }
+
+    private static OwnedJob ToOwnedJob(Job j) => new(j.Id, j.ClientId, j.Command, j.WorkingDirectory,
+        j.TimeoutSeconds, j.Status, j.Stdout, j.Stderr, j.ExitCode, j.CreatedAt, j.UpdatedAt);
 
     /// <inheritdoc />
     public Task<int> ExpireStaleRunningAsync(Guid? clientId, CancellationToken cancellationToken = default)
@@ -197,6 +253,23 @@ public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
 /// <inheritdoc />
 public sealed class UserRepository(CommandLineMcpDbContext db) : IUserRepository
 {
+    public async Task<User> FindOrCreateByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default)
+    {
+        if (telegramId <= 0) throw new ArgumentOutOfRangeException(nameof(telegramId));
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var user = await db.Users.SingleOrDefaultAsync(x => x.TelegramId == telegramId, cancellationToken);
+        if (user is null)
+        {
+            user = new User { TelegramId = telegramId, IsOAuthAllowed = false, RoleId = 0 };
+            db.Users.Add(user);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return user;
+    }
+
+    public Task<User?> FindByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
     /// <inheritdoc />
     public Task<User?> FindByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default) =>
         db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.TelegramId == telegramId, cancellationToken);
@@ -256,19 +329,87 @@ public static class DataRepositoryServiceCollectionExtensions
     {
         Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IJobRepository, JobRepository>(services);
         Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IUserRepository, UserRepository>(services);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IUserAccessValidator, UserAccessValidator>(services);
         Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IClientRepository, ClientRepository>(services);
         Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IDatabaseMaintenance, DatabaseMaintenance>(services);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped<IOAuthScopeRepository, OAuthScopeRepository>(services);
         return services;
+    }
+}
+
+/// <inheritdoc />
+public sealed class OAuthScopeRepository(IOpenIddictScopeManager scopes) : IOAuthScopeRepository
+{
+    public async Task EnsureCommandsResourceAsync(string resource, CancellationToken cancellationToken = default)
+    {
+        var existing = await scopes.FindByNameAsync("commands", cancellationToken);
+        if (existing is null)
+        {
+            var descriptor = new OpenIddictScopeDescriptor
+            {
+                Name = "commands",
+                DisplayName = "CommandLineMCP command execution"
+            };
+            descriptor.Resources.Add(resource);
+            await scopes.CreateAsync(descriptor, cancellationToken);
+            return;
+        }
+
+        var current = await scopes.GetResourcesAsync(existing, cancellationToken);
+        if (current.Contains(resource, StringComparer.Ordinal)) return;
+        var updated = new OpenIddictScopeDescriptor();
+        await scopes.PopulateAsync(updated, existing, cancellationToken);
+        updated.Resources.Clear();
+        updated.Resources.Add(resource);
+        await scopes.UpdateAsync(existing, updated, cancellationToken);
     }
 }
 
 /// <inheritdoc />
 public sealed class ClientRepository(CommandLineMcpDbContext db) : IClientRepository
 {
+    public async Task<IReadOnlyList<OwnedClient>> FindByOwnerAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        await db.Clients.AsNoTracking().Where(x => x.UserId == userId)
+            .OrderBy(x => x.CreatedAt).Select(x => new OwnedClient(x.Id, x.Name, x.IsEnabled, x.CreatedAt, x.UpdatedAt))
+            .ToListAsync(cancellationToken);
+
+    public async Task<OwnedClient> CreateAsync(Guid userId, string name, string uppercaseSha256Hash, CancellationToken cancellationToken = default)
+    {
+        var client = new Client { UserId = userId, Name = name, BearerKeyHash = uppercaseSha256Hash, IsEnabled = true };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync(cancellationToken);
+        return ToOwnedClient(client);
+    }
+
+    public Task<OwnedClient?> RenameAsync(Guid userId, Guid clientId, string name, CancellationToken cancellationToken = default) =>
+        UpdateOwnedAsync(userId, clientId, client => client.Name = name, cancellationToken);
+
+    public Task<OwnedClient?> ReplaceBearerKeyHashAsync(Guid userId, Guid clientId, string uppercaseSha256Hash, CancellationToken cancellationToken = default) =>
+        UpdateOwnedAsync(userId, clientId, client => { client.BearerKeyHash = uppercaseSha256Hash; client.IsEnabled = true; }, cancellationToken);
+
+    public async Task<bool> RevokeAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default)
+    {
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        if (client is null) return false;
+        if (client.IsEnabled) { client.IsEnabled = false; await db.SaveChangesAsync(cancellationToken); }
+        return true;
+    }
+
+    private async Task<OwnedClient?> UpdateOwnedAsync(Guid userId, Guid clientId, Action<Client> update, CancellationToken cancellationToken)
+    {
+        var client = await db.Clients.SingleOrDefaultAsync(x => x.Id == clientId && x.UserId == userId, cancellationToken);
+        if (client is null) return null;
+        update(client);
+        await db.SaveChangesAsync(cancellationToken);
+        return ToOwnedClient(client);
+    }
+
+    private static OwnedClient ToOwnedClient(Client c) => new(c.Id, c.Name, c.IsEnabled, c.CreatedAt, c.UpdatedAt);
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<Client>> FindByBearerKeyHashCandidatesAsync(string uppercaseSha256Hash,
         CancellationToken cancellationToken = default) => await db.Clients.AsNoTracking()
-        .Where(c => c.BearerKeyHash.ToUpper() == uppercaseSha256Hash).ToListAsync(cancellationToken);
+        .Where(c => c.IsEnabled && c.BearerKeyHash.ToUpper() == uppercaseSha256Hash).ToListAsync(cancellationToken);
 }
 
 /// <inheritdoc />

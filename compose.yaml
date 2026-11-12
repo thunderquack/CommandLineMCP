@@ -8,4 +8,10 @@ services:
       ConnectionStrings__Database: Data Source=/data/commandline-mcp.db
     volumes:
       - ./data:/data
+      - type: bind
+        source: ./secrets/server.secrets.json
+        target: /run/secrets/server.secrets.json
+        read_only: true
+        bind:
+          create_host_path: false
     restart: unless-stopped

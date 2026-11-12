@@ -5,6 +5,7 @@ public static class AdminCommandRunner
 {
     public const string HelpText = """
         CommandLineMcp.Admin commands:
+          auth init-secrets [path]           Create OAuth signing secrets; refuses overwrite.
           users allow-oauth <TelegramId...>  Allow OAuth; create missing users with RoleId 0.
           users deny-oauth <TelegramId...>   Deny OAuth for existing users.
           users set-role <TelegramId> <0|1>  Set the role for an existing user.

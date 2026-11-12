@@ -1,5 +1,58 @@
 # CommandLineMCP
 
+## Configure authentication secrets
+
+The server requires a persistent signing certificate and Telegram OIDC
+credentials. Generate the initial file before starting Compose:
+
+```powershell
+New-Item -ItemType Directory -Force secrets | Out-Null
+dotnet run --project mcp-server/CommandLineMcp.Admin -- auth init-secrets secrets/server.secrets.json
+```
+
+This requires the .NET 11 SDK. The command creates a self-signed RSA signing
+certificate encoded as PFX base64 with a cryptographically random password. This
+certificate signs/encrypts OAuth tokens and protects persisted data-protection
+keys; it is not the public HTTPS/TLS certificate used by the reverse proxy. It
+prints only the created path and refuses to overwrite an existing file. Keep the
+generated file private, stable across restarts, and out of logs/backups shared
+outside the service operator's control. Fill `Telegram.ClientId` and
+`Telegram.ClientSecret` using the OIDC credentials BotFather provides for your
+bot. The tracked `secrets/server.secrets.example.json` documents the shape, but
+its certificate and credentials are placeholders.
+
+The public issuer is `https://cmd.example.com/`; the MCP resource is
+`https://cmd.example.com/mcp`. Compose mounts the secrets file read-only at
+`/run/secrets/server.secrets.json`. Deployments can override the path with
+`OAuth__SecretsFile`. Data protection keys persist at `/data/keys` on the
+existing data bind mount.
+
+For browser-based MCP clients, add each trusted HTTPS origin to
+`Mcp:CorsAllowedOrigins` (for example `Mcp__CorsAllowedOrigins__0=https://chatgpt.com`).
+The default is empty, which rejects cross-origin MCP requests. OAuth token and
+revocation endpoints allow wildcard origins without credentialed cookies.
+
+Configure the Telegram OIDC callback URL as
+`https://cmd.example.com/auth/telegram/callback` in the BotFather-provided client
+settings and allow the `cmd.example.com` domain. Add the MCP server in ChatGPT and
+complete its OAuth flow; do not manually create or paste a ChatGPT client
+secret. The authorization-server metadata is at
+`https://cmd.example.com/.well-known/openid-configuration`; its dynamic client
+registration endpoint is `https://cmd.example.com/register`. The server issues
+authorization codes through `/connect/authorize`, tokens through `/connect/token`,
+and revokes tokens through `/connect/revoke`. The MCP protected-resource
+metadata is `https://cmd.example.com/.well-known/oauth-protected-resource/mcp` and
+declares resource `https://cmd.example.com/mcp`. DCR creates the client credentials
+as part of the OAuth setup; use the values returned by the registration flow.
+The required scope is `commands`. Request `offline_access` as well if the client
+needs refresh tokens; access tokens last 15 minutes and refresh tokens up to 30
+days.
+
+Telegram identities that have not been approved cannot sign in. New users found
+during Telegram OIDC login are created with OAuth disabled and role 0. An
+administrator can enable a Telegram ID with `users allow-oauth`; that command
+also creates a missing user in the enabled, role 0 state.
+
 ## Run the server with Docker Compose
 
 From the repository root, copy the published override template once, then start:
@@ -11,13 +64,30 @@ docker compose up --build -d
 Invoke-RestMethod http://localhost:8080/health
 ```
 
-`compose.yaml` has the service, restart policy, and database bind mount. The
+`compose.yaml` has the service, restart policy, database bind mount, and a
+required read-only mount for `./secrets/server.secrets.json`. Generate that
+file before starting Compose; a missing file fails startup rather than creating
+an empty directory. The
 ignored `compose.override.yaml` publishes port 8080; customize it locally as
 needed. The tracked `compose.override.example.yaml` can be used to recreate it.
 
 The server applies EF Core migrations at startup. SQLite is stored at
 `./data/commandline-mcp.db` on the host through a bind mount. The database
 directory is ignored by Git.
+
+### Reverse proxy
+
+Terminate public TLS at the existing `cmd.example.com` reverse proxy and forward
+to the server over HTTP. Preserve the original host and scheme with `Host`,
+`X-Forwarded-Host`, and `X-Forwarded-Proto: https`. Allow streaming responses
+for MCP SSE and disable buffering/timeouts that cut off long responses. The app
+accepts forwarded host/protocol only from explicitly trusted proxy addresses.
+Set `ForwardedHeaders__KnownProxies__0` (and additional indexed entries if
+needed) to the proxy's actual source IP as seen by the server container. Do not
+use a guessed address or trust all proxies. The issuer stays fixed at
+`https://cmd.example.com/`. Keep CORS limited to the ChatGPT origins needed by the
+OAuth client and preserve the application's Content-Security-Policy; do not
+replace either with wildcard proxy rules.
 
 ## Admin CLI
 

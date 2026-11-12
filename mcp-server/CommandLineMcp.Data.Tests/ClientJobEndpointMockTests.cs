@@ -22,10 +22,12 @@ public sealed class ClientJobEndpointMockTests
         var clients = new Mock<IClientRepository>(MockBehavior.Strict);
         var jobs = new Mock<IJobRepository>(MockBehavior.Strict);
         var database = new Mock<IDatabaseMaintenance>(MockBehavior.Strict);
+        var oauthScopes = new Mock<IOAuthScopeRepository>(MockBehavior.Strict);
         clients.Setup(x => x.FindByBearerKeyHashCandidatesAsync(
             Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))), It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<Client>)[new Client { Id = clientId, BearerKeyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))) }]);
         database.Setup(x => x.MigrateAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        oauthScopes.Setup(x => x.EnsureCommandsResourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         jobs.Setup(x => x.ExpireStaleRunningAsync(null, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         jobs.Setup(x => x.ExpireStaleRunningAsync(clientId, It.IsAny<CancellationToken>())).ReturnsAsync(0);
         jobs.Setup(x => x.ClaimNextAsync(clientId, It.IsAny<CancellationToken>()))
@@ -36,16 +38,23 @@ public sealed class ClientJobEndpointMockTests
             .ReturnsAsync(JobResultSubmissionOutcome.Accepted)
             .ReturnsAsync(JobResultSubmissionOutcome.Conflict);
 
+        using var temporary = new TemporaryHostDirectory();
+        var connectionString = $"Data Source={Path.Combine(temporary.Path, "mock-host.db")}";
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            TestAuthHostConfiguration.Apply(builder, temporary.Path, connectionString);
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IClientRepository>();
                 services.RemoveAll<IJobRepository>();
                 services.RemoveAll<IDatabaseMaintenance>();
+                services.RemoveAll<IOAuthScopeRepository>();
                 services.AddSingleton(clients.Object);
                 services.AddSingleton(jobs.Object);
                 services.AddSingleton(database.Object);
-            }));
+                services.AddSingleton(oauthScopes.Object);
+            });
+        });
         using var http = factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
@@ -69,4 +78,15 @@ public sealed class ClientJobEndpointMockTests
     }
 
     private sealed record PollResponse(Guid JobId, string Command, string? WorkingDirectory, int TimeoutSeconds);
+
+    private sealed class TemporaryHostDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "CommandLineMcp.Tests", Guid.NewGuid().ToString("N"));
+
+        public void Dispose()
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(Path)) Directory.Delete(Path, recursive: true);
+        }
+    }
 }
