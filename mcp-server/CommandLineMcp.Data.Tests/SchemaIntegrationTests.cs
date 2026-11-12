@@ -21,7 +21,7 @@ public sealed class SchemaIntegrationTests
         CollectionAssert.AreEqual(new[] { "20261112000000_Initial" }, (await context.Database.GetAppliedMigrationsAsync()).ToArray());
         await context.Database.MigrateAsync();
         var applied = (await context.Database.GetAppliedMigrationsAsync()).ToArray();
-        Assert.AreEqual(3, applied.Length);
+        Assert.AreEqual(4, applied.Length);
         await context.Database.MigrateAsync();
         CollectionAssert.AreEqual(applied, (await context.Database.GetAppliedMigrationsAsync()).ToArray());
         Assert.IsFalse(context.Database.HasPendingModelChanges(), "The model snapshot must match the current EF model.");

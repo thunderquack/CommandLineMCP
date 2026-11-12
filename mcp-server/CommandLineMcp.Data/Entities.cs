@@ -11,6 +11,7 @@ public sealed class User : IAuditedEntity
     public Guid Id { get; set; }
     public long TelegramId { get; set; }
     public bool IsOAuthAllowed { get; set; }
+    public int RoleId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public ICollection<Client> Clients { get; } = new List<Client>();

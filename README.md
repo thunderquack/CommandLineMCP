@@ -19,6 +19,36 @@ The server applies EF Core migrations at startup. SQLite is stored at
 `./data/commandline-mcp.db` on the host through a bind mount. The database
 directory is ignored by Git.
 
+## Admin CLI
+
+The server image also contains `CommandLineMcp.Admin` at `/app/admin`. Run an
+administrative command in the server container while it is online:
+
+```powershell
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users allow-oauth 123456789
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users deny-oauth 123456789
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users set-role 123456789 1
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users show 123456789
+```
+
+For an offline maintenance run, `run --no-deps` avoids starting or depending
+on the server process. Stop the server first so SQLite has a single writer:
+
+```powershell
+docker compose stop server
+docker compose run --rm --no-deps --entrypoint dotnet server /app/admin/CommandLineMcp.Admin.dll users show 123456789
+docker compose start server
+```
+
+`allow-oauth` accepts one or more positive Telegram IDs and creates missing
+users with role 0. `deny-oauth` and `set-role` require all IDs to exist;
+`set-role` accepts only 0 or 1. Duplicate IDs are ignored. Every batch is
+atomic. The CLI applies EF migrations before executing a command, uses
+`ConnectionStrings__Database` or the same `Data Source=data/commandline-mcp.db`
+default as the server, and creates the database parent directory when needed.
+Exit codes are 0 for success, 2 for invalid arguments, 3 for missing users,
+and 1 for database errors. Use `--help` for command syntax.
+
 ## Create or apply migrations
 
 The `CommandLineMcp.Data` project contains the DbContext and design-time factory.

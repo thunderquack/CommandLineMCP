@@ -18,6 +18,7 @@ public sealed class CommandLineMcpDbContext(DbContextOptions<CommandLineMcpDbCon
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.TelegramId).IsUnique();
             entity.Property(x => x.IsOAuthAllowed).HasDefaultValue(false);
+            entity.Property(x => x.RoleId).IsRequired().HasDefaultValue(0);
             ConfigureAudit(entity);
         });
 

@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CommandLineMcp.Data\CommandLineMcp.Data.csproj" />
     <ProjectReference Include="..\CommandLineMcp.Server\CommandLineMcp.Server.csproj" />
+    <ProjectReference Include="..\CommandLineMcp.Admin\CommandLineMcp.Admin.csproj" />
   </ItemGroup>
 
 </Project>

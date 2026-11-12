@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="CommandLineMcp.Data.Tests/CommandLineMcp.Data.Tests.csproj" />
   <Project Path="CommandLineMcp.Data/CommandLineMcp.Data.csproj" />
+  <Project Path="CommandLineMcp.Admin/CommandLineMcp.Admin.csproj" />
   <Project Path="CommandLineMcp.Server/CommandLineMcp.Server.csproj" />
 </Solution>
