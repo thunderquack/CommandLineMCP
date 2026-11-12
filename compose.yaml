@@ -1,0 +1,11 @@
+services:
+  server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Database: Data Source=/data/commandline-mcp.db
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

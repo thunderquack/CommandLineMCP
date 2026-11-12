@@ -5,3 +5,5 @@
 .venv/
 .vs/
 .idea/
+/data/
+/compose.override.yaml
