@@ -49,6 +49,46 @@ public sealed class ClientJobApiTests
     }
 
     [TestMethod]
+    public async Task RestartJobIsDeliveredAsTypedJobAndAcknowledged()
+    {
+        using var fixture = new ApiFixture();
+        await fixture.InitializeAsync();
+        // Finish the initial command so the restart can be claimed.
+        using var factory = fixture.CreateFactory();
+        using var http = factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Key);
+        var initial = await http.PostAsJsonAsync("/api/client/jobs/poll", new { waitSeconds = 0 });
+        Assert.AreEqual(HttpStatusCode.OK, initial.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK,
+            (await http.PostAsJsonAsync($"/api/client/jobs/{fixture.JobId}/result",
+                new { stdout = "", stderr = "", exitCode = 0, timedOut = false })).StatusCode);
+
+        Guid restartId;
+        await using (var db = new CommandLineMcpDbContext(fixture.Options))
+        {
+            var repository = new JobRepository(db);
+            var job = await repository.CreateAsync(fixture.ClientId, "__mcp_restart__", null, 60,
+                kind: JobKind.Restart);
+            restartId = job.Id;
+        }
+        var response = await http.PostAsJsonAsync("/api/client/jobs/poll", new { waitSeconds = 0 });
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        var jobResponse = await response.Content.ReadFromJsonAsync<RestartPollResponse>();
+        Assert.IsNotNull(jobResponse);
+        Assert.AreEqual(restartId, jobResponse.JobId);
+        Assert.AreEqual("restart", jobResponse.Kind);
+        Assert.AreEqual(HttpStatusCode.OK,
+            (await http.PostAsJsonAsync($"/api/client/jobs/{restartId}/result",
+                new { stdout = "restart requested", stderr = "", exitCode = 0, timedOut = false })).StatusCode);
+        await using var verify = new CommandLineMcpDbContext(fixture.Options);
+        var saved = await verify.Jobs.SingleAsync(j => j.Id == restartId);
+        Assert.AreEqual(JobKind.Restart, saved.Kind);
+        Assert.AreEqual(JobStatus.Succeeded, saved.Status);
+    }
+
+    private sealed record RestartPollResponse(Guid JobId, string Kind);
+
+    [TestMethod]
     public async Task ClientPublishesCapabilitiesAndRejectsInvalidPayloads()
     {
         using var fixture = new ApiFixture();

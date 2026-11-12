@@ -8,7 +8,7 @@ namespace CommandLineMcp.Data;
 /// </summary>
 public interface IJobRepository
 {
-    Task<OwnedJob> CreateAsync(Guid clientId, string command, string? workingDirectory, int timeoutSeconds, CancellationToken cancellationToken = default);
+    Task<OwnedJob> CreateAsync(Guid clientId, string command, string? workingDirectory, int timeoutSeconds, CancellationToken cancellationToken = default, JobKind kind = JobKind.Command);
     Task<OwnedJob?> FindOwnedByIdAsync(Guid userId, Guid jobId, CancellationToken cancellationToken = default);
     /// <summary>
     /// Переводит просроченные выполняющиеся задания в состояние с неизвестным исходом.
@@ -180,12 +180,13 @@ public sealed class JobRepository(CommandLineMcpDbContext db) : IJobRepository
     private const int UnknownGraceSeconds = 120;
 
     public async Task<OwnedJob> CreateAsync(Guid clientId, string command, string? workingDirectory, int timeoutSeconds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, JobKind kind = JobKind.Command)
     {
         var job = new Job
         {
             ClientId = clientId,
             Command = command,
+            Kind = kind,
             WorkingDirectory = workingDirectory,
             TimeoutSeconds = timeoutSeconds,
             Status = JobStatus.Pending

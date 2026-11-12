@@ -430,7 +430,7 @@ public sealed class TelegramOidcIntegrationTests
         var tools = await mcp.ListToolsAsync();
         Assert.AreEqual(userId, fixture.AccessObservation.LastUserId);
         Assert.IsTrue(fixture.AccessObservation.LastAllowed);
-        CollectionAssert.AreEquivalent(new[] { "list_clients", "submit_job", "get_job", "wait_job" },
+        CollectionAssert.AreEquivalent(new[] { "list_clients", "submit_job", "get_job", "wait_job", "restart_client" },
             tools.Select(tool => tool.Name).ToArray());
         var listed = await mcp.CallToolAsync("list_clients", new Dictionary<string, object?>());
         Assert.IsTrue(listed.IsError != true);

@@ -54,6 +54,24 @@ public sealed class CommandTools
         return new(true, null, job.Id);
     }
 
+    /// <summary>Queues an authenticated restart for an owned enabled client.</summary>
+    [McpServerTool(Name = "restart_client", UseStructuredContent = true, Destructive = true)]
+    [Description("Queues a graceful restart of the selected client. The client acknowledges the job, closes its journal, then starts a fresh Python interpreter loading current files from disk. Use after deploying updated client code.")]
+    public static async Task<JobSubmissionResult> RestartClient(
+        ClaimsPrincipal principal, IClientRepository clients, IJobRepository jobs, IUserAccessValidator access,
+        [Description("ID of one of your enabled clients.")] Guid clientId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryUserId(principal, out var userId) || !await access.IsOAuthAllowedAsync(userId, cancellationToken))
+            return new(false, "unauthorized", null);
+        var owned = await clients.FindByOwnerAsync(userId, cancellationToken);
+        if (owned.All(c => c.Id != clientId || !c.IsEnabled))
+            return new(false, "client_not_found", null);
+        var job = await jobs.CreateAsync(clientId, "__mcp_restart__", null, 60,
+            cancellationToken, JobKind.Restart);
+        return new(true, null, job.Id);
+    }
+
     /// <summary>
     /// Возвращает состояние и результат принадлежащего пользователю задания.
     /// </summary>

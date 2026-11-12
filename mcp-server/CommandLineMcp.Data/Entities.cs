@@ -125,6 +125,9 @@ public sealed class Job : IAuditedEntity
     /// </summary>
     public string Command { get; set; } = null!;
 
+    /// <summary>Command or a client lifecycle operation.</summary>
+    public JobKind Kind { get; set; } = JobKind.Command;
+
     /// <summary>
     /// Возвращает или задаёт рабочую директорию; значение <see langword="null"/> означает, что она не задана.
     /// </summary>
@@ -170,6 +173,12 @@ public sealed class Job : IAuditedEntity
 /// <summary>
 /// Состояние задания на стороне сервера.
 /// </summary>
+public enum JobKind
+{
+    Command,
+    Restart
+}
+
 public enum JobStatus
 {
     /// <summary>

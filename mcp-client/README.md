@@ -93,3 +93,20 @@ python -m unittest discover -s tests -v
 
 The PowerShell integration test runs only on Windows. All other tests use a
 temporary local SQLite database and fake API; they make no network requests.
+
+## Remote restart
+
+The MCP server exposes a dedicated `restart_client(clientId)` tool.
+This queues a restart job (kind `restart`) through the normal authenticated
+job pipeline. The Python client never runs its `command` as shell code.
+It durably stores a successful result, uploads it, and only after a server
+acknowledgement closes the SQLite journal and single-instance lock. It then
+calls `os.execv(sys.executable, [sys.executable, *sys.argv])` to start a new
+Python interpreter with the same arguments and current working directory.
+The new process imports the latest source files from disk, including updated
+modules. An unsuccessful upload is retried without executing the restart twice.
+A client interrupted after server acknowledgement may need manual recovery;
+automatic process supervision is recommended for production deployments.
+
+Deploy updated client code before sending a restart command; deploy the
+server changes and database migration before using the new MCP tool.

@@ -15,7 +15,7 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261112183517_AddClientCapabilities";
+    public override string LastMigrationId => "20261112190547_AddRestartJobKind";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -101,6 +101,12 @@ partial class CommandLineMcpDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<int?>("ExitCode")
                     .HasColumnType("INTEGER");
+
+                b.Property<string>("Kind")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("Command");
 
                 b.Property<string>("Status")
                     .IsRequired()

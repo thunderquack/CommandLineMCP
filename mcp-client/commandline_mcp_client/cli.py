@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from dotenv import dotenv_values
 
-from .client import ClientConfig, HttpApi, Journal, Runner, safe_server_endpoint
+from .client import ClientConfig, HttpApi, Journal, Runner, RestartRequested, safe_server_endpoint
 from .capabilities import detect_capabilities
 from .shells import create_shell
 
@@ -76,6 +76,7 @@ def main() -> None:
         raise KeyboardInterrupt
 
     previous_handler = signal.signal(signal.SIGINT, on_ctrl_c)
+    restart = False
     try:
         config = load_config(args.config)
         logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO,
@@ -94,6 +95,8 @@ def main() -> None:
                        create_shell(capabilities["defaultShell"]), capabilities=capabilities).run_forever()
             finally:
                 journal.close()
+    except RestartRequested:
+        restart = True
     except KeyboardInterrupt:
         logging.info("MCP client stopped")
         return
@@ -102,3 +105,8 @@ def main() -> None:
         sys.exit(2)
     finally:
         signal.signal(signal.SIGINT, previous_handler)
+    if restart:
+        # The journal is closed and the single-instance lock is released.
+        # execv starts a fresh interpreter, so updated .py files are loaded.
+        logging.info("restarting with fresh interpreter: %s", sys.executable)
+        os.execv(sys.executable, [sys.executable, *sys.argv])

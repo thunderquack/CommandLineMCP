@@ -5,7 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from commandline_mcp_client.cli import load_config
-from commandline_mcp_client.client import ApiError, Journal, Runner, _valid_job, safe_server_endpoint
+from commandline_mcp_client.client import ApiError, Journal, Runner, RestartRequested, _valid_job, safe_server_endpoint
 from commandline_mcp_client.shells import ExecutionResult, PowerShellShell, create_shell
 
 
@@ -45,6 +45,60 @@ class ClientTests(unittest.TestCase):
     def tearDown(self):
         self.journal.close()
         self.temp.cleanup()
+
+    def test_restart_acknowledged_without_shell_execution(self):
+        job = {**JOB, "kind": "restart", "command": "__mcp_restart__"}
+        api, shell = FakeApi([job]), FakeShell()
+        with self.assertRaises(RestartRequested):
+            Runner(api, self.journal, shell).run_once()
+        self.assertEqual(shell.calls, [])
+        self.assertEqual(self.journal.state(job["jobId"]), "acknowledged")
+        self.assertEqual(api.uploads[0][1]["exitCode"], 0)
+
+    def test_restart_retries_upload_before_relaunch(self):
+        class FlakyRestartApi(FakeApi):
+            def __init__(self, job):
+                super().__init__([job])
+                self.attempts = 0
+
+            def request(self, method, path, payload=None):
+                if path.endswith("/result"):
+                    self.attempts += 1
+                    if self.attempts == 1:
+                        raise ApiError("temporarily offline")
+                return super().request(method, path, payload)
+
+        job = {**JOB, "kind": "restart", "command": "__mcp_restart__"}
+        api, shell = FlakyRestartApi(job), FakeShell()
+        runner = Runner(api, self.journal, shell)
+        with self.assertRaises(ApiError):
+            runner.run_once()
+        self.assertEqual(self.journal.state(job["jobId"]), "completed")
+        with self.assertRaises(RestartRequested):
+            runner.run_once()
+        self.assertEqual(api.attempts, 2)
+        self.assertEqual(shell.calls, [])
+
+    def test_old_journal_migrates_kind_column(self):
+        import sqlite3
+        path = Path(self.temp.name) / "legacy.sqlite3"
+        db = sqlite3.connect(path)
+        try:
+            db.execute("""CREATE TABLE jobs (
+                job_id TEXT PRIMARY KEY, command TEXT NOT NULL, working_directory TEXT NOT NULL,
+                timeout_seconds REAL NOT NULL, state TEXT NOT NULL, stdout TEXT, stderr TEXT,
+                exit_code INTEGER, timed_out INTEGER, received_at REAL NOT NULL, updated_at REAL NOT NULL
+            )""")
+            db.commit()
+        finally:
+            db.close()
+        journal = Journal(path)
+        try:
+            self.assertTrue(journal.add_received(JOB))
+            row = journal.db.execute("SELECT kind FROM jobs WHERE job_id=?", (JOB["jobId"],)).fetchone()
+            self.assertEqual(row["kind"], "command")
+        finally:
+            journal.close()
 
     def test_persists_result_before_upload_and_uploads_result(self):
         api, shell = FakeApi([JOB]), FakeShell(ExecutionResult("héllo", "", 0))

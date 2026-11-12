@@ -50,6 +50,10 @@ class ApiError(Exception):
     pass
 
 
+class RestartRequested(Exception):
+    """The server acknowledged a restart; relaunch after closing all resources."""
+
+
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Do not forward Authorization credentials to a redirect target."""
 
@@ -106,6 +110,7 @@ class Journal:
             """CREATE TABLE IF NOT EXISTS jobs (
                 job_id TEXT PRIMARY KEY,
                 command TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'command',
                 working_directory TEXT NOT NULL,
                 timeout_seconds REAL NOT NULL,
                 state TEXT NOT NULL CHECK (state IN ('received','started','completed','acknowledged','conflict')),
@@ -117,6 +122,9 @@ class Journal:
                 updated_at REAL NOT NULL
             )"""
         )
+        # Existing installations use the same SQLite journal. Upgrade in place.
+        if "kind" not in {row["name"] for row in self.db.execute("PRAGMA table_info(jobs)")}:
+            self.db.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'command'")
         self.db.commit()
 
     def close(self) -> None:
@@ -125,8 +133,8 @@ class Journal:
     def add_received(self, job: dict) -> bool:
         now = time.time()
         cursor = self.db.execute(
-            "INSERT OR IGNORE INTO jobs(job_id,command,working_directory,timeout_seconds,state,received_at,updated_at) VALUES(?,?,?,?, 'received',?,?)",
-            (job["jobId"], job["command"], job["workingDirectory"], job["timeoutSeconds"], now, now),
+            "INSERT OR IGNORE INTO jobs(job_id,command,kind,working_directory,timeout_seconds,state,received_at,updated_at) VALUES(?,?,?,?,?, 'received',?,?)",
+            (job["jobId"], job["command"], job.get("kind", "command"), job["workingDirectory"], job["timeoutSeconds"], now, now),
         )
         self.db.commit()
         return cursor.rowcount == 1
@@ -166,6 +174,9 @@ def _valid_job(job: object) -> dict:
         command = job["command"]
         working_directory = job.get("workingDirectory")
         timeout = float(job["timeoutSeconds"])
+        kind = job.get("kind", "command")
+        if kind not in ("command", "restart"):
+            raise ValueError
         if not all(isinstance(v, str) and v for v in (job_id, command)):
             raise ValueError
         if working_directory is None or working_directory == "":
@@ -176,7 +187,7 @@ def _valid_job(job: object) -> dict:
             raise ValueError
     except (KeyError, TypeError, ValueError):
         raise ApiError("server returned an invalid job") from None
-    return {"jobId": job_id, "command": command, "workingDirectory": working_directory, "timeoutSeconds": timeout}
+    return {"jobId": job_id, "command": command, "workingDirectory": working_directory, "timeoutSeconds": timeout, "kind": kind}
 
 
 class Runner:
@@ -208,6 +219,9 @@ class Runner:
                 raise ApiError(f"unexpected result response HTTP {status}")
             self.journal.mark_acknowledged(row["job_id"])
             LOG.info("result acknowledged for job %s", row["job_id"])
+            if row["kind"] == "restart":
+                LOG.info("restart job acknowledged; closing resources and relaunching client")
+                raise RestartRequested
         if not self.journal.pending_results():
             self._pending_retry_reported = False
 
@@ -279,6 +293,15 @@ class Runner:
         LOG.debug("job %s command=%r workingDirectory=%r timeoutSeconds=%s", job["jobId"], job["command"], job["workingDirectory"], job["timeoutSeconds"])
         self.journal.mark_started(job["jobId"])
         LOG.info("execution started for job %s", job["jobId"])
+        if job["kind"] == "restart":
+            # Do not execute arbitrary shell code or restart before the
+            # acknowledgement. If uploading fails, the pending result is
+            # retried and the restart proceeds only after server confirmation.
+            self.journal.mark_completed(job["jobId"], ExecutionResult(
+                "Client restart acknowledged; reloading Python from disk.", "", 0
+            ))
+            self.upload_completed()
+            return True
         try:
             result = self.shell.execute(job["command"], job["workingDirectory"], job["timeoutSeconds"])
         except Exception as exc:

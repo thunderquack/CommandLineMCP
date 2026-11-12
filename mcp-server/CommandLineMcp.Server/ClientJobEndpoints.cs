@@ -57,7 +57,7 @@ public static class ClientJobEndpoints
             var claimed = await jobs.ClaimNextAsync(client.Id, ct);
             if (claimed is not null)
                 return Results.Ok(new JobResponse(claimed.Id, claimed.Command!,
-                    claimed.WorkingDirectory, claimed.TimeoutSeconds));
+                    claimed.WorkingDirectory, claimed.TimeoutSeconds, claimed.Kind.ToString().ToLowerInvariant()));
             if (DateTime.UtcNow >= until) break;
             await Task.Delay(PollInterval, ct);
         } while (true);
@@ -106,7 +106,7 @@ public static class ClientJobEndpoints
         string Architecture, string DefaultShell, ShellCapability[] Shells);
 
     public sealed record PollRequest([property: JsonPropertyName("waitSeconds")] int WaitSeconds);
-    public sealed record JobResponse(Guid JobId, string Command, string? WorkingDirectory, int TimeoutSeconds);
+    public sealed record JobResponse(Guid JobId, string Command, string? WorkingDirectory, int TimeoutSeconds, string Kind);
     public sealed record ResultRequest(
         [property: JsonPropertyName("stdout")] string Stdout,
         [property: JsonPropertyName("stderr")] string Stderr,
