@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace CommandLineMcp.Data.Tests;
 
@@ -46,6 +47,31 @@ public sealed class ClientJobApiTests
         Assert.AreEqual(JobStatus.Succeeded, saved.Status);
         Assert.AreEqual("C:\\work\n", saved.Stdout);
         Assert.AreEqual(0, saved.ExitCode);
+    }
+
+    [TestMethod]
+    public async Task PollIncludesSelectedShellForCommand()
+    {
+        using var fixture = new ApiFixture();
+        await fixture.InitializeAsync();
+        var id = Guid.NewGuid();
+        await using (var db = new CommandLineMcpDbContext(fixture.Options))
+        {
+            db.Jobs.Add(new Job { Id = id, ClientId = fixture.ClientId,
+                Command = "echo test", Shell = "cmd", TimeoutSeconds = 30 });
+            await db.SaveChangesAsync();
+            // Initial job is completed to allow selection of the new one.
+            await db.Jobs.Where(j => j.Id == fixture.JobId).ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.Status, JobStatus.Succeeded));
+        }
+        using var factory = fixture.CreateFactory();
+        using var http = factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Key);
+        var response = await http.PostAsJsonAsync("/api/client/jobs/poll", new { waitSeconds = 0 });
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.AreEqual(id.ToString(), body.RootElement.GetProperty("jobId").GetString());
+        Assert.AreEqual("cmd", body.RootElement.GetProperty("shell").GetString());
     }
 
     [TestMethod]

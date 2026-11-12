@@ -41,16 +41,27 @@ public sealed class CommandTools
         [Description("The command the client should execute.")] string command,
         [Description("Optional working directory on the client.")] string? workingDirectory,
         [Description("Execution timeout in seconds; must be greater than zero.")] int timeoutSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [Description("Optional shell ID from list_clients (pwsh, powershell, cmd, bash or sh). When omitted, uses the client's default shell.")] string? shell = null)
     {
         if (!TryUserId(principal, out var userId) || !await access.IsOAuthAllowedAsync(userId, cancellationToken))
             return new(false, "unauthorized", null);
         if (string.IsNullOrWhiteSpace(command) || timeoutSeconds <= 0)
             return new(false, "invalid_input", null);
         var owned = await clients.FindByOwnerAsync(userId, cancellationToken);
-        if (owned.All(c => c.Id != clientId || !c.IsEnabled))
+        var target = owned.FirstOrDefault(c => c.Id == clientId && c.IsEnabled);
+        if (target is null)
             return new(false, "client_not_found", null);
-        var job = await jobs.CreateAsync(clientId, command, workingDirectory, timeoutSeconds, cancellationToken);
+        if (shell is not null)
+        {
+            if (shell.Length is < 1 or > 32 || shell.Trim() != shell || target.ShellsJson is null)
+                return new(false, "unsupported_shell", null);
+            var available = System.Text.Json.JsonSerializer.Deserialize<AvailableShell[]>(target.ShellsJson);
+            if (available is null || !available.Any(s => s.Id == shell))
+                return new(false, "unsupported_shell", null);
+        }
+        var job = await jobs.CreateAsync(clientId, command, workingDirectory, timeoutSeconds,
+            cancellationToken, shell: shell);
         return new(true, null, job.Id);
     }
 

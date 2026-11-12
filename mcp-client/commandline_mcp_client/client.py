@@ -111,6 +111,7 @@ class Journal:
                 job_id TEXT PRIMARY KEY,
                 command TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'command',
+                shell TEXT,
                 working_directory TEXT NOT NULL,
                 timeout_seconds REAL NOT NULL,
                 state TEXT NOT NULL CHECK (state IN ('received','started','completed','acknowledged','conflict')),
@@ -123,8 +124,11 @@ class Journal:
             )"""
         )
         # Existing installations use the same SQLite journal. Upgrade in place.
-        if "kind" not in {row["name"] for row in self.db.execute("PRAGMA table_info(jobs)")}:
+        existing_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(jobs)")}
+        if "kind" not in existing_columns:
             self.db.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'command'")
+        if "shell" not in existing_columns:
+            self.db.execute("ALTER TABLE jobs ADD COLUMN shell TEXT")
         self.db.commit()
 
     def close(self) -> None:
@@ -133,8 +137,8 @@ class Journal:
     def add_received(self, job: dict) -> bool:
         now = time.time()
         cursor = self.db.execute(
-            "INSERT OR IGNORE INTO jobs(job_id,command,kind,working_directory,timeout_seconds,state,received_at,updated_at) VALUES(?,?,?,?,?, 'received',?,?)",
-            (job["jobId"], job["command"], job.get("kind", "command"), job["workingDirectory"], job["timeoutSeconds"], now, now),
+            "INSERT OR IGNORE INTO jobs(job_id,command,kind,shell,working_directory,timeout_seconds,state,received_at,updated_at) VALUES(?,?,?,?,?,?, 'received',?,?)",
+            (job["jobId"], job["command"], job.get("kind", "command"), job.get("shell"), job["workingDirectory"], job["timeoutSeconds"], now, now),
         )
         self.db.commit()
         return cursor.rowcount == 1
@@ -175,6 +179,10 @@ def _valid_job(job: object) -> dict:
         working_directory = job.get("workingDirectory")
         timeout = float(job["timeoutSeconds"])
         kind = job.get("kind", "command")
+        selected_shell = job.get("shell")
+        if selected_shell is not None and (not isinstance(selected_shell, str) or
+                                           not selected_shell or len(selected_shell) > 32):
+            raise ValueError
         if kind not in ("command", "restart"):
             raise ValueError
         if not all(isinstance(v, str) and v for v in (job_id, command)):
@@ -187,7 +195,7 @@ def _valid_job(job: object) -> dict:
             raise ValueError
     except (KeyError, TypeError, ValueError):
         raise ApiError("server returned an invalid job") from None
-    return {"jobId": job_id, "command": command, "workingDirectory": working_directory, "timeoutSeconds": timeout, "kind": kind}
+    return {"jobId": job_id, "command": command, "workingDirectory": working_directory, "timeoutSeconds": timeout, "kind": kind, "shell": selected_shell}
 
 
 class Runner:
@@ -303,7 +311,17 @@ class Runner:
             self.upload_completed()
             return True
         try:
-            result = self.shell.execute(job["command"], job["workingDirectory"], job["timeoutSeconds"])
+            selected_shell = job["shell"]
+            if selected_shell is not None:
+                if self.capabilities is not None and selected_shell not in {
+                    item["id"] for item in self.capabilities["shells"]
+                }:
+                    result = ExecutionResult("", f"Unsupported shell: {selected_shell}", 1)
+                else:
+                    result = create_shell(selected_shell).execute(
+                        job["command"], job["workingDirectory"], job["timeoutSeconds"])
+            else:
+                result = self.shell.execute(job["command"], job["workingDirectory"], job["timeoutSeconds"])
         except Exception as exc:
             # The command may have partially run. Record an unknown completion only
             # is unsafe, so leave state=started and require server-side expiry.

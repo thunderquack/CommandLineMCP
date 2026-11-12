@@ -100,6 +100,35 @@ class ClientTests(unittest.TestCase):
         finally:
             journal.close()
 
+    def test_explicit_shell_uses_selected_adapter_not_default(self):
+        api, default = FakeApi([{**JOB, "shell": "cmd", "command": "echo CMD_JOB"}]), FakeShell()
+        caps = {"shells": [{"id": "pwsh"}, {"id": "cmd"}]}
+        with patch("commandline_mcp_client.client.create_shell") as create:
+            cmd = FakeShell(ExecutionResult("CMD_JOB\n", "", 0))
+            create.return_value = cmd
+            runner = Runner(api, self.journal, default, capabilities=caps)
+            runner._capabilities_published = True
+            runner.run_once()
+        create.assert_called_once_with("cmd")
+        self.assertEqual(default.calls, [])
+        self.assertEqual(cmd.calls, [("echo CMD_JOB", ".", 10.0)])
+        row = self.journal.db.execute("SELECT shell FROM jobs WHERE job_id=?", (JOB["jobId"],)).fetchone()
+        self.assertEqual(row["shell"], "cmd")
+
+    def test_unsupported_shell_fails_without_execution(self):
+        api, default = FakeApi([{**JOB, "shell": "bash"}]), FakeShell()
+        caps = {"shells": [{"id": "pwsh"}]}
+        runner = Runner(api, self.journal, default, capabilities=caps)
+        runner._capabilities_published = True
+        runner.run_once()
+        self.assertEqual(default.calls, [])
+        self.assertEqual(api.uploads[0][1]["exitCode"], 1)
+        self.assertIn("Unsupported shell", api.uploads[0][1]["stderr"])
+
+    def test_invalid_shell_payload_rejected(self):
+        with self.assertRaises(ApiError):
+            _valid_job({**JOB, "shell": ["pwsh"]})
+
     def test_persists_result_before_upload_and_uploads_result(self):
         api, shell = FakeApi([JOB]), FakeShell(ExecutionResult("héllo", "", 0))
         Runner(api, self.journal, shell).run_once()

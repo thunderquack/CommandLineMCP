@@ -54,6 +54,7 @@ public sealed class CommandLineMcpDbContext(DbContextOptions<CommandLineMcpDbCon
             entity.Property(x => x.Status).HasConversion<string>().HasDefaultValue(JobStatus.Pending);
             entity.Property(x => x.Command).IsRequired();
             entity.Property(x => x.Kind).HasConversion<string>().HasDefaultValue(JobKind.Command);
+            entity.Property(x => x.Shell).HasMaxLength(32);
             entity.HasOne(x => x.Client).WithMany(x => x.Jobs).HasForeignKey(x => x.ClientId)
                 .OnDelete(DeleteBehavior.Restrict).IsRequired();
             entity.HasIndex(x => new { x.ClientId, x.Status, x.CreatedAt });

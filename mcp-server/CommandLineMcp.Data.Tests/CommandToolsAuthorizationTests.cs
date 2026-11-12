@@ -49,6 +49,37 @@ public sealed class CommandToolsAuthorizationTests
     }
 
     [TestMethod]
+    public async Task SubmitJobSelectsPublishedShellAndRejectsUnknownShell()
+    {
+        var userId = Guid.NewGuid();
+        var clientId = Guid.NewGuid();
+        var access = new Mock<IUserAccessValidator>(MockBehavior.Strict);
+        access.Setup(x => x.IsOAuthAllowedAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var clients = new Mock<IClientRepository>(MockBehavior.Strict);
+        clients.Setup(x => x.FindByOwnerAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(
+            (IReadOnlyList<OwnedClient>)[new(clientId, "worker", true,
+                DateTime.UtcNow, DateTime.UtcNow, ShellsJson:
+                "[{\"Id\":\"pwsh\",\"Version\":\"7\"},{\"Id\":\"cmd\",\"Version\":null}]")]);
+        var jobs = new Mock<IJobRepository>(MockBehavior.Strict);
+        jobs.Setup(x => x.CreateAsync(clientId, "echo test", null, 30, It.IsAny<CancellationToken>(),
+            JobKind.Command, "cmd")).ReturnsAsync(new OwnedJob(Guid.NewGuid(), clientId,
+                "echo test", null, 30, JobStatus.Pending, null, null, null,
+                DateTime.UtcNow, DateTime.UtcNow));
+
+        var principal = Principal(userId);
+        var accepted = await CommandTools.SubmitJob(principal, clients.Object, jobs.Object,
+            access.Object, clientId, "echo test", null, 30, CancellationToken.None, "cmd");
+        Assert.IsTrue(accepted.Success);
+        var rejected = await CommandTools.SubmitJob(principal, clients.Object, jobs.Object,
+            access.Object, clientId, "echo test", null, 30, CancellationToken.None, "bash");
+        Assert.AreEqual("unsupported_shell", rejected.Error);
+        var malformed = await CommandTools.SubmitJob(principal, clients.Object, jobs.Object,
+            access.Object, clientId, "echo test", null, 30, CancellationToken.None, " cmd ");
+        Assert.AreEqual("unsupported_shell", malformed.Error);
+        jobs.VerifyAll();
+    }
+
+    [TestMethod]
     public async Task GetAndWaitJobExposeOnlyOwnedJobAndFinishedStatus()
     {
         var userId = Guid.NewGuid();

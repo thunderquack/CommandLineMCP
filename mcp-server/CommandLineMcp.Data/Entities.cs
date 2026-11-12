@@ -128,6 +128,9 @@ public sealed class Job : IAuditedEntity
     /// <summary>Command or a client lifecycle operation.</summary>
     public JobKind Kind { get; set; } = JobKind.Command;
 
+    /// <summary>Selected shell id; null means the client's default shell.</summary>
+    public string? Shell { get; set; }
+
     /// <summary>
     /// Возвращает или задаёт рабочую директорию; значение <see langword="null"/> означает, что она не задана.
     /// </summary>

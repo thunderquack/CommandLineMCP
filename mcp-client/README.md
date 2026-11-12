@@ -110,3 +110,13 @@ automatic process supervision is recommended for production deployments.
 
 Deploy updated client code before sending a restart command; deploy the
 server changes and database migration before using the new MCP tool.
+
+## Per-job shell
+
+The MCP `submit_job` tool accepts an optional `shell` ID. Use the IDs reported
+by `list_clients`: `pwsh`, `powershell`, `cmd`, `bash` or `sh`.
+The server rejects a shell not present in the client's published capabilities.
+Omitting `shell` preserves the client-configured default. The Python runner
+selects the corresponding adapter for each job; the SQLite journal persists
+the selected shell and upgrades existing journals automatically. Restart jobs
+are handled separately and never executed in any shell.
