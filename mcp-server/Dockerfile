@@ -1,9 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 COPY CommandLineMCP.slnx ./
+COPY Directory.Packages.props ./
 COPY CommandLineMcp.Data/ ./CommandLineMcp.Data/
 COPY CommandLineMcp.Server/ ./CommandLineMcp.Server/
-RUN dotnet restore CommandLineMCP.slnx
+RUN dotnet restore CommandLineMcp.Server/CommandLineMcp.Server.csproj
 RUN dotnet publish CommandLineMcp.Server/CommandLineMcp.Server.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
