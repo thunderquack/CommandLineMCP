@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using CommandLineMcp.Data;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace CommandLineMcp.Server;
@@ -54,19 +53,26 @@ public static class ClientJobEndpoints
             return SameResult(job, body, status) ? Results.Ok() : Results.Conflict();
         if (job.Status is not (JobStatus.Running or JobStatus.Unknown)) return Results.Conflict();
 
-        var changed = await db.Database.ExecuteSqlAsync($"""
-            UPDATE Jobs SET Status = {status.ToString()}, Stdout = {body.Stdout}, Stderr = {body.Stderr},
-                ExitCode = {body.ExitCode}, UpdatedAt = {DateTime.UtcNow.ToString("O")}
-            WHERE lower(Id) = lower({jobId.ToString()}) AND lower(ClientId) = lower({client.Id.ToString()})
-              AND Status IN ('Running', 'Unknown')
-            """, ct);
+        var now = DateTime.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var changed = await db.Jobs
+            .Where(j => j.Id == jobId && j.ClientId == client.Id &&
+                (j.Status == JobStatus.Running || j.Status == JobStatus.Unknown))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, status)
+                .SetProperty(j => j.Stdout, body.Stdout)
+                .SetProperty(j => j.Stderr, body.Stderr)
+                .SetProperty(j => j.ExitCode, body.ExitCode)
+                .SetProperty(j => j.UpdatedAt, now), ct);
         if (changed == 0)
         {
             await db.Entry(job).ReloadAsync(ct);
+            await transaction.CommitAsync(ct);
             return job.Status is JobStatus.Succeeded or JobStatus.Failed or JobStatus.TimedOut
                 ? SameResult(job, body, status) ? Results.Ok() : Results.Conflict()
                 : Results.Conflict();
         }
+        await transaction.CommitAsync(ct);
         return Results.Ok();
     }
 
@@ -98,51 +104,53 @@ public static class ClientJobEndpoints
     private static async Task ExpireStaleRunningAsync(CommandLineMcpDbContext db, Guid clientId, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        await db.Database.ExecuteSqlAsync($"""
-            UPDATE Jobs SET Status = 'Unknown', UpdatedAt = {now.ToString("O")}
-            WHERE lower(ClientId) = lower({clientId.ToString()}) AND Status = 'Running'
-              AND julianday(UpdatedAt) <= julianday({now.ToString("O")})
-                    - ((TimeoutSeconds + {UnknownGraceSeconds}) / 86400.0)
-            """, ct);
+        await db.Jobs
+            .Where(j => j.ClientId == clientId && j.Status == JobStatus.Running &&
+                j.UpdatedAt.AddSeconds((double)j.TimeoutSeconds + UnknownGraceSeconds) <= now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, JobStatus.Unknown)
+                .SetProperty(j => j.UpdatedAt, now), ct);
     }
 
     public static async Task ExpireAllStaleRunningAsync(CommandLineMcpDbContext db, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        await db.Database.ExecuteSqlAsync($"""
-            UPDATE Jobs SET Status = 'Unknown', UpdatedAt = {now.ToString("O")}
-            WHERE Status = 'Running'
-              AND julianday(UpdatedAt) <= julianday({now.ToString("O")})
-                    - ((TimeoutSeconds + {UnknownGraceSeconds}) / 86400.0)
-            """, ct);
+        await db.Jobs
+            .Where(j => j.Status == JobStatus.Running &&
+                j.UpdatedAt.AddSeconds((double)j.TimeoutSeconds + UnknownGraceSeconds) <= now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, JobStatus.Unknown)
+                .SetProperty(j => j.UpdatedAt, now), ct);
     }
 
     private static async Task<Job?> TryClaimAsync(CommandLineMcpDbContext db, Guid clientId, CancellationToken ct)
     {
-        // A single conditional UPDATE is the claim lock: SQLite serializes writers, so concurrent
-        // pollers cannot transition more than one job to Running for this client.
-        await using var connection = new SqliteConnection(db.Database.GetConnectionString());
-        await connection.OpenAsync(ct);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE Jobs SET Status = 'Running', UpdatedAt = $now
-            WHERE Id = (SELECT Id FROM Jobs WHERE lower(ClientId) = lower($clientId) AND Status = 'Pending'
-                        AND Command IS NOT NULL
-                        ORDER BY CreatedAt, Id LIMIT 1)
-              AND NOT EXISTS (SELECT 1 FROM Jobs WHERE lower(ClientId) = lower($clientId) AND Status = 'Running')
-            RETURNING Id, Command, WorkingDirectory, TimeoutSeconds
-            """;
-        command.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
-        command.Parameters.AddWithValue("$clientId", clientId.ToString());
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
-        return new Job
+        // Keep candidate selection, conditional claim, and read in one transaction so no
+        // poller can observe a half-completed claim or claim a second running job.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var candidateIds = db.Jobs.AsNoTracking()
+            .Where(j => j.ClientId == clientId && j.Status == JobStatus.Pending)
+            .OrderBy(j => j.CreatedAt).ThenBy(j => j.Id)
+            .Select(j => j.Id).Take(1);
+        var now = DateTime.UtcNow;
+        var changed = await db.Jobs
+            .Where(j => candidateIds.Contains(j.Id) && j.ClientId == clientId && j.Status == JobStatus.Pending &&
+                !db.Jobs.Any(r => r.ClientId == clientId && r.Status == JobStatus.Running))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(j => j.Status, JobStatus.Running)
+                .SetProperty(j => j.UpdatedAt, now), ct);
+        if (changed != 1)
         {
-            Id = Guid.Parse(reader.GetString(0)),
-            Command = reader.IsDBNull(1) ? throw new InvalidOperationException("Claimed job has no command.") : reader.GetString(1),
-            WorkingDirectory = reader.IsDBNull(2) ? null : reader.GetString(2),
-            TimeoutSeconds = reader.GetInt32(3)
-        };
+            await transaction.CommitAsync(ct);
+            return null;
+        }
+
+        // The conditional update guarantees there was no prior Running row, so the
+        // resulting client-scoped Running row is the job this transaction claimed.
+        var claimed = await db.Jobs.AsNoTracking()
+            .SingleAsync(j => j.ClientId == clientId && j.Status == JobStatus.Running, ct);
+        await transaction.CommitAsync(ct);
+        return claimed;
     }
 
     public sealed record PollRequest([property: JsonPropertyName("waitSeconds")] int WaitSeconds);
