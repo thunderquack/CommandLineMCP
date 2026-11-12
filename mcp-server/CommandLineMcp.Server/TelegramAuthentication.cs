@@ -2,6 +2,7 @@ using CommandLineMcp.Data;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using System.Globalization;
+using System.Net;
 using System.Security.Claims;
 
 namespace CommandLineMcp.Server;
@@ -50,6 +51,12 @@ public static class TelegramAuthentication
                     options.ResponseType = OpenIdConnectResponseType.Code;
                     options.UsePkce = true;
                     options.RequireHttpsMetadata = true;
+                    options.BackchannelHttpHandler = new HttpClientHandler
+                    {
+                        AutomaticDecompression = DecompressionMethods.GZip
+                            | DecompressionMethods.Deflate
+                            | DecompressionMethods.Brotli
+                    };
                     options.ProtocolValidator.RequireNonce = true;
                     options.GetClaimsFromUserInfoEndpoint = false;
                     options.SaveTokens = false;

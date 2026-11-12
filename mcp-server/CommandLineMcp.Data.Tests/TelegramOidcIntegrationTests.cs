@@ -28,6 +28,68 @@ namespace CommandLineMcp.Data.Tests;
 public sealed class TelegramOidcIntegrationTests
 {
     [TestMethod]
+    public async Task TelegramBackchannelDecompressesGzipJsonOverHttp()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Telegram:ClientId"] = "test-client",
+                ["Telegram:ClientSecret"] = "test-secret"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCommandLineMcpTelegramLogin(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<OpenIdConnectOptions>>()
+            .Get(TelegramAuthentication.TelegramScheme);
+
+        Assert.IsInstanceOfType<HttpClientHandler>(options.BackchannelHttpHandler);
+        var handler = (HttpClientHandler)options.BackchannelHttpHandler!;
+        Assert.AreEqual(
+            DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+            handler.AutomaticDecompression);
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var address = (IPEndPoint)listener.LocalEndpoint;
+        var responseTask = Task.Run(async () =>
+        {
+            using var socket = await listener.AcceptTcpClientAsync();
+            await using var stream = socket.GetStream();
+            var request = new List<byte>();
+            var buffer = new byte[1024];
+            while (!Encoding.ASCII.GetString(request.ToArray()).Contains("\r\n\r\n", StringComparison.Ordinal))
+            {
+                var count = await stream.ReadAsync(buffer);
+                request.AddRange(buffer.AsSpan(0, count).ToArray());
+            }
+
+            var body = Encoding.UTF8.GetBytes("{\"keys\":[]}");
+            await using var compressed = new MemoryStream();
+            await using (var gzip = new System.IO.Compression.GZipStream(compressed,
+                             System.IO.Compression.CompressionMode.Compress, leaveOpen: true))
+            {
+                await gzip.WriteAsync(body);
+            }
+
+            var compressedBody = compressed.ToArray();
+            var headers = Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {compressedBody.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(headers);
+            await stream.WriteAsync(compressedBody);
+        });
+
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var jsonTask = http.GetStringAsync($"http://127.0.0.1:{address.Port}/jwks");
+        await responseTask;
+        using var document = JsonDocument.Parse(await jsonTask);
+        Assert.IsTrue(document.RootElement.TryGetProperty("keys", out var keys));
+        Assert.AreEqual(JsonValueKind.Array, keys.ValueKind);
+    }
+
+    [TestMethod]
     public async Task LoginUsesOidcStateNoncePkceAndMapsAllowedTelegramUserToSession()
     {
         using var fixture = new AuthHostFixture();
