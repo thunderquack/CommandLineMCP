@@ -3,6 +3,12 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+namespace CommandLineMcp.Admin;
+
+internal static class Program
+{
+public static async Task<int> Main(string[] args)
+{
 if (args.Length == 1 && args[0] is "--help" or "-h" or "help")
 {
     Console.Out.WriteLine(AdminCommandRunner.HelpText);
@@ -38,4 +44,6 @@ catch (Exception)
 {
     Console.Error.WriteLine("Database operation failed.");
     return 1;
+}
+}
 }

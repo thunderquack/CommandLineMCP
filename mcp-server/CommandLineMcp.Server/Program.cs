@@ -5,6 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
 
+public partial class Program
+{
+public static async Task Main(string[] args)
+{
 var builder = WebApplication.CreateBuilder(args);
 
 var secretsFile = builder.Configuration["OAuth:SecretsFile"] ?? "/run/secrets/server.secrets.json";
@@ -123,6 +127,6 @@ app.MapCommandLineMcpWebEndpoints();
 app.MapDynamicClientRegistration();
 app.MapCommandLineMcpTools();
 
-app.Run();
-
-public partial class Program;
+await app.RunAsync();
+}
+}
