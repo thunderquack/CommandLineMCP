@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import _thread
 import logging
 import os
 import signal
@@ -67,6 +68,39 @@ def load_config(path: Path) -> ClientConfig:
     return ClientConfig(server_url, bearer_key, state_path, setting("SHELL", "auto").lower(), debug=debug_value in ("true", "1", "yes", "on"))
 
 
+
+def install_windows_console_handler():
+    """Forward native CTRL_C_EVENT / CTRL_BREAK_EVENT to Python's SIGINT handler.
+
+    Windows venv uses a launcher process, and console control events can bypass
+    Python's normal signal dispatch. A native handler runs on a Windows thread,
+    so it must *schedule* an interrupt on the Python main thread, never raise
+    KeyboardInterrupt directly on the console callback thread.
+    """
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handler_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+    kernel32.SetConsoleCtrlHandler.argtypes = [handler_type, wintypes.BOOL]
+    kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
+
+    @handler_type
+    def on_console_event(event):
+        if event not in (0, 1):  # CTRL_C_EVENT, CTRL_BREAK_EVENT
+            return False
+        _thread.interrupt_main(signal.SIGINT)
+        return True
+
+    if not kernel32.SetConsoleCtrlHandler(on_console_event, True):
+        logging.warning("could not install Windows console control handler: %s",
+                        ctypes.get_last_error())
+        return None
+    return kernel32, on_console_event
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CommandLineMCP polling command runner")
     parser.add_argument("--config", type=Path, default=Path(".env"), help="environment configuration file")
@@ -76,6 +110,7 @@ def main() -> None:
         raise KeyboardInterrupt
 
     previous_handler = signal.signal(signal.SIGINT, on_ctrl_c)
+    windows_handler = install_windows_console_handler()
     restart = False
     try:
         config = load_config(args.config)
@@ -104,6 +139,9 @@ def main() -> None:
         logging.error("client could not start: %s", exc)
         sys.exit(2)
     finally:
+        if windows_handler is not None:
+            kernel32, handler = windows_handler
+            kernel32.SetConsoleCtrlHandler(handler, False)
         signal.signal(signal.SIGINT, previous_handler)
     if restart:
         # The journal is closed and the single-instance lock is released.

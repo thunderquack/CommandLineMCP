@@ -46,6 +46,21 @@ class ClientTests(unittest.TestCase):
         self.journal.close()
         self.temp.cleanup()
 
+    @unittest.skipUnless(os.name == "nt", "native console events are Windows-only")
+    def test_windows_console_handler_forwards_ctrl_c_and_ctrl_break(self):
+        from commandline_mcp_client.cli import install_windows_console_handler
+        with patch("commandline_mcp_client.cli._thread.interrupt_main") as trigger:
+            registration = install_windows_console_handler()
+            self.assertIsNotNone(registration)
+            kernel32, handler = registration
+            try:
+                self.assertTrue(handler(0))
+                self.assertTrue(handler(1))
+                self.assertFalse(handler(2))
+                self.assertEqual(trigger.call_count, 2)
+            finally:
+                kernel32.SetConsoleCtrlHandler(handler, False)
+
     def test_restart_acknowledged_without_shell_execution(self):
         job = {**JOB, "kind": "restart", "command": "__mcp_restart__"}
         api, shell = FakeApi([job]), FakeShell()
