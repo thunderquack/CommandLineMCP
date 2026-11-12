@@ -77,14 +77,14 @@ directory is ignored by Git.
 
 ### Reverse proxy
 
-Terminate public TLS at the existing `cmd.example.com` reverse proxy and forward
+Terminate public TLS at the deployment reverse proxy and forward
 to the server over HTTP. Preserve the original host and scheme with `Host`,
 `X-Forwarded-Host`, and `X-Forwarded-Proto: https`. Allow streaming responses
 for MCP SSE and disable buffering/timeouts that cut off long responses. The app
 accepts forwarded host/protocol only from explicitly trusted proxy addresses.
 Set `ForwardedHeaders__KnownProxies__0` (and additional indexed entries if
-needed) to the proxy's actual source IP as seen by the server container. Do not
-use a guessed address or trust all proxies. The issuer stays fixed at
+needed) to the proxy source IP as seen by the server container. Store this value
+in local ignored configuration. Do not trust all proxies. The issuer stays fixed at
 `https://cmd.example.com/`. Keep CORS limited to the ChatGPT origins needed by the
 OAuth client and preserve the application's Content-Security-Policy; do not
 replace either with wildcard proxy rules.
@@ -95,10 +95,10 @@ The server image also contains `CommandLineMcp.Admin` at `/app/admin`. Run an
 administrative command in the server container while it is online:
 
 ```powershell
-docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users allow-oauth 123456789
-docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users deny-oauth 123456789
-docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users set-role 123456789 1
-docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users show 123456789
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users allow-oauth TELEGRAM_ID
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users deny-oauth TELEGRAM_ID
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users set-role TELEGRAM_ID 1
+docker compose exec -T server dotnet /app/admin/CommandLineMcp.Admin.dll users show TELEGRAM_ID
 ```
 
 For an offline maintenance run, `run --no-deps` avoids starting or depending
@@ -106,11 +106,12 @@ on the server process. Stop the server first so SQLite has a single writer:
 
 ```powershell
 docker compose stop server
-docker compose run --rm --no-deps --entrypoint dotnet server /app/admin/CommandLineMcp.Admin.dll users show 123456789
+docker compose run --rm --no-deps --entrypoint dotnet server /app/admin/CommandLineMcp.Admin.dll users show TELEGRAM_ID
 docker compose start server
 ```
 
-`allow-oauth` accepts one or more positive Telegram IDs and creates missing
+`allow-oauth` accepts one or more positive Telegram IDs from local administration and creates
+missing
 users with role 0. `deny-oauth` and `set-role` require all IDs to exist;
 `set-role` accepts only 0 or 1. Duplicate IDs are ignored. Every batch is
 atomic. The CLI applies EF migrations before executing a command, uses
